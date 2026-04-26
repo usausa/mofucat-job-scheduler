@@ -5,7 +5,7 @@ using System.Globalization;
 /// <summary>
 /// Schedules and executes registered jobs.
 /// </summary>
-public sealed class JobScheduler : IDisposable, IAsyncDisposable
+public sealed class JobScheduler(TimeProvider? timeProvider = null) : IDisposable, IAsyncDisposable
 {
     private static readonly TimeSpan MaxSingleWait = TimeSpan.FromHours(1);
 
@@ -16,6 +16,7 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
     private Task? loopTask;
     private bool isRunning;
     private bool disposed;
+    private readonly TimeProvider timeProvider = timeProvider ?? TimeProvider.System;
 
     /// <summary>
     /// Occurs when a job execution fails.
@@ -69,7 +70,7 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
             cancellationTokenSource = new CancellationTokenSource();
             wakeup = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            var now = DateTimeOffset.Now;
+            var now = this.timeProvider.GetUtcNow();
             foreach (var job in jobs.Values)
             {
                 job.Next = job.Cron.GetNextOccurrence(now);
@@ -151,7 +152,7 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
             var scheduledJob = new ScheduledJob(actualName, expression, job, handle);
             if (isRunning)
             {
-                scheduledJob.Next = expression.GetNextOccurrence(DateTimeOffset.Now);
+                scheduledJob.Next = expression.GetNextOccurrence(timeProvider.GetUtcNow());
             }
 
             jobs[actualName] = scheduledJob;
@@ -180,6 +181,31 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
             }
 
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Removes all registered jobs.
+    /// </summary>
+    /// <returns>The number of removed jobs.</returns>
+    public int RemoveAllJobs()
+    {
+        lock (sync)
+        {
+            var removedCount = jobs.Count;
+            if (removedCount == 0)
+            {
+                return 0;
+            }
+
+            foreach (var job in jobs.Values)
+            {
+                job.Handle.MarkRemoved();
+            }
+
+            jobs.Clear();
+            SignalWakeupUnsafe();
+            return removedCount;
         }
     }
 
@@ -268,7 +294,7 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
                 continue;
             }
 
-            var now = DateTimeOffset.Now;
+            var now = timeProvider.GetUtcNow();
             var delay = nextTime!.Value - now;
             if (delay > MaxSingleWait)
             {
@@ -286,7 +312,7 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
                     break;
                 }
 
-                now = DateTimeOffset.Now;
+                now = timeProvider.GetUtcNow();
             }
 
             if (now < nextTime.Value)
@@ -303,7 +329,7 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
                     && current.Next == nextTime)
                 {
                     firingJob = current;
-                    current.Next = current.Cron.GetNextOccurrence(DateTimeOffset.Now);
+                    current.Next = current.Cron.GetNextOccurrence(timeProvider.GetUtcNow());
                 }
             }
 
@@ -314,7 +340,7 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
         }
     }
 
-    private static async Task WaitAsync(Task wakeupTask, TimeSpan delay, CancellationToken cancellationToken)
+    private async Task WaitAsync(Task wakeupTask, TimeSpan delay, CancellationToken cancellationToken)
     {
         if (delay == Timeout.InfiniteTimeSpan)
         {
@@ -328,14 +354,21 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
             return;
         }
 
-        using var linkedCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var delayTask = Task.Delay(delay, linkedCancellationTokenSource.Token);
-        await Task.WhenAny(wakeupTask, delayTask).ConfigureAwait(false);
-        await linkedCancellationTokenSource.CancelAsync().ConfigureAwait(false);
+        var delayTaskSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var timer = timeProvider.CreateTimer(
+            static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true),
+            delayTaskSource,
+            delay,
+            Timeout.InfiniteTimeSpan);
+        using var cancellationRegistration = cancellationToken.Register(
+            static state => ((TaskCompletionSource<bool>)state!).TrySetCanceled(),
+            delayTaskSource);
+
+        await Task.WhenAny(wakeupTask, delayTaskSource.Task).ConfigureAwait(false);
 
         try
         {
-            await delayTask.ConfigureAwait(false);
+            await delayTaskSource.Task.ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

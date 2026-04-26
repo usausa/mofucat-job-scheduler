@@ -10,6 +10,7 @@
     <Title>Mofucat.JobScheduler</Title>
     <Description>Job scheduler.</Description>
     <PackageTags>scheduler cron</PackageTags>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

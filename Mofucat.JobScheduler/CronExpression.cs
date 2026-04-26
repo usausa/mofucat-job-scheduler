@@ -1,41 +1,53 @@
 namespace Mofucat.JobScheduler;
 
 using System.Globalization;
+using System.Numerics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 /// <summary>
 /// Parses and evaluates a cron expression.
 /// </summary>
 public sealed class CronExpression
 {
-    private readonly HashSet<int> seconds;
-    private readonly HashSet<int> minutes;
-    private readonly HashSet<int> hours;
-    private readonly HashSet<int> daysOfMonth;
-    private readonly HashSet<int> months;
-    private readonly HashSet<int> daysOfWeek;
-    private readonly bool dayOfMonthRestricted;
-    private readonly bool dayOfWeekRestricted;
+    private const int MonthMin = 1;
+    private const int MonthMax = 12;
+    private const int DayOfMonthMin = 1;
+    private const int DayOfMonthMax = 31;
+    private const byte DayOfMonthRestrictedFlag = 1;
+    private const byte DayOfWeekRestrictedFlag = 2;
+    private static ReadOnlySpan<byte> DaysInMonthTable => [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    private static ReadOnlySpan<byte> DayOfWeekTable => [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+
+    private readonly ulong secondsMask;
+    private readonly ulong minutesMask;
+    private readonly uint hoursMask;
+    private readonly uint daysOfMonthMask;
+    private readonly ushort monthsMask;
+    private readonly byte daysOfWeekMask;
+    private readonly byte flags;
+    private readonly bool includesSeconds;
 
     private CronExpression(
         string expression,
-        HashSet<int> seconds,
-        HashSet<int> minutes,
-        HashSet<int> hours,
-        HashSet<int> daysOfMonth,
-        HashSet<int> months,
-        HashSet<int> daysOfWeek,
-        bool dayOfMonthRestricted,
-        bool dayOfWeekRestricted)
+        ulong secondsMask,
+        ulong minutesMask,
+        uint hoursMask,
+        uint daysOfMonthMask,
+        ushort monthsMask,
+        byte daysOfWeekMask,
+        byte flags,
+        bool includesSeconds)
     {
         Expression = expression;
-        this.seconds = seconds;
-        this.minutes = minutes;
-        this.hours = hours;
-        this.daysOfMonth = daysOfMonth;
-        this.months = months;
-        this.daysOfWeek = daysOfWeek;
-        this.dayOfMonthRestricted = dayOfMonthRestricted;
-        this.dayOfWeekRestricted = dayOfWeekRestricted;
+        this.secondsMask = secondsMask;
+        this.minutesMask = minutesMask;
+        this.hoursMask = hoursMask;
+        this.daysOfMonthMask = daysOfMonthMask;
+        this.monthsMask = monthsMask;
+        this.daysOfWeekMask = daysOfWeekMask;
+        this.flags = flags;
+        this.includesSeconds = includesSeconds;
     }
 
     /// <summary>
@@ -52,38 +64,39 @@ public sealed class CronExpression
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(expression);
 
-        var parts = expression.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
+        var span = expression.AsSpan();
+        Span<Range> ranges = stackalloc Range[6];
+        var rangeCount = SplitFields(span, ranges);
 
-        HashSet<int> localSeconds;
-        HashSet<int> localMinutes;
-        HashSet<int> localHours;
-        HashSet<int> localDaysOfMonth;
-        HashSet<int> localMonths;
-        HashSet<int> localDaysOfWeek;
-        string dayOfMonthField;
-        string dayOfWeekField;
+        var localSecondsMask = 1UL;
+        ulong localMinutesMask;
+        uint localHoursMask;
+        uint localDaysOfMonthMask;
+        ushort localMonthsMask;
+        byte localDaysOfWeekMask;
+        ReadOnlySpan<char> dayOfMonthField;
+        ReadOnlySpan<char> dayOfWeekField;
 
-        if (parts.Length == 5)
+        if (rangeCount == 5)
         {
-            localSeconds = [0];
-            localMinutes = ParseField(parts[0], 0, 59, "minute");
-            localHours = ParseField(parts[1], 0, 23, "hour");
-            localDaysOfMonth = ParseField(parts[2], 1, 31, "day-of-month");
-            localMonths = ParseField(parts[3], 1, 12, "month");
-            localDaysOfWeek = ParseField(parts[4], 0, 6, "day-of-week");
-            dayOfMonthField = parts[2];
-            dayOfWeekField = parts[4];
+            localMinutesMask = ParseFieldMask64(span[ranges[0]], 0, 59, "minute");
+            localHoursMask = (uint)ParseFieldMask64(span[ranges[1]], 0, 23, "hour");
+            localDaysOfMonthMask = (uint)ParseFieldMask64(span[ranges[2]], DayOfMonthMin, DayOfMonthMax, "day-of-month");
+            localMonthsMask = (ushort)ParseFieldMask64(span[ranges[3]], MonthMin, MonthMax, "month");
+            localDaysOfWeekMask = (byte)ParseFieldMask64(span[ranges[4]], 0, 6, "day-of-week");
+            dayOfMonthField = span[ranges[2]];
+            dayOfWeekField = span[ranges[4]];
         }
-        else if (parts.Length == 6)
+        else if (rangeCount == 6)
         {
-            localSeconds = ParseField(parts[0], 0, 59, "second");
-            localMinutes = ParseField(parts[1], 0, 59, "minute");
-            localHours = ParseField(parts[2], 0, 23, "hour");
-            localDaysOfMonth = ParseField(parts[3], 1, 31, "day-of-month");
-            localMonths = ParseField(parts[4], 1, 12, "month");
-            localDaysOfWeek = ParseField(parts[5], 0, 6, "day-of-week");
-            dayOfMonthField = parts[3];
-            dayOfWeekField = parts[5];
+            localSecondsMask = ParseFieldMask64(span[ranges[0]], 0, 59, "second");
+            localMinutesMask = ParseFieldMask64(span[ranges[1]], 0, 59, "minute");
+            localHoursMask = (uint)ParseFieldMask64(span[ranges[2]], 0, 23, "hour");
+            localDaysOfMonthMask = (uint)ParseFieldMask64(span[ranges[3]], DayOfMonthMin, DayOfMonthMax, "day-of-month");
+            localMonthsMask = (ushort)ParseFieldMask64(span[ranges[4]], MonthMin, MonthMax, "month");
+            localDaysOfWeekMask = (byte)ParseFieldMask64(span[ranges[5]], 0, 6, "day-of-week");
+            dayOfMonthField = span[ranges[3]];
+            dayOfWeekField = span[ranges[5]];
         }
         else
         {
@@ -92,14 +105,14 @@ public sealed class CronExpression
 
         return new CronExpression(
             expression,
-            localSeconds,
-            localMinutes,
-            localHours,
-            localDaysOfMonth,
-            localMonths,
-            localDaysOfWeek,
-            dayOfMonthField != "*",
-            dayOfWeekField != "*");
+            localSecondsMask,
+            localMinutesMask,
+            localHoursMask,
+            localDaysOfMonthMask,
+            localMonthsMask,
+            localDaysOfWeekMask,
+            GetFlags(dayOfMonthField, dayOfWeekField),
+            rangeCount == 6);
     }
 
     /// <summary>
@@ -108,85 +121,455 @@ public sealed class CronExpression
     /// <param name="from">The base time.</param>
     /// <returns>The next occurrence, if any.</returns>
     public DateTimeOffset? GetNextOccurrence(DateTimeOffset from)
+        => includesSeconds ? GetNextOccurrenceWithSeconds(from) : GetNextOccurrenceWithoutSeconds(from);
+
+    private DateTimeOffset? GetNextOccurrenceWithoutSeconds(DateTimeOffset from)
     {
-        var candidate = new DateTimeOffset(
-            from.Year,
-            from.Month,
-            from.Day,
-            from.Hour,
-            from.Minute,
-            from.Second,
-            from.Offset).AddSeconds(1);
+        var offset = from.Offset;
+        var year = from.Year;
+        var month = from.Month;
+        var day = from.Day;
+        var hour = from.Hour;
+        var minute = from.Minute;
+        var second = 0;
 
-        var limit = candidate.AddYears(4);
-        while (candidate < limit)
+        if (from.Second >= 59)
         {
-            if (!months.Contains(candidate.Month))
+            minute++;
+        }
+
+        if (minute > 59)
+        {
+            minute = 0;
+            hour++;
+        }
+
+        if (hour > 23)
+        {
+            hour = 0;
+            day++;
+            AdjustDay(ref year, ref month, ref day);
+        }
+
+        var maxYear = year + 5;
+
+        while (year < maxYear)
+        {
+            if ((monthsMask & (1 << month)) == 0)
             {
-                candidate = new DateTimeOffset(candidate.Year, candidate.Month, 1, 0, 0, 0, candidate.Offset).AddMonths(1);
+                if (!AdvanceToNextMonth(ref year, ref month, maxYear))
+                {
+                    break;
+                }
+
+                day = 1;
+                hour = 0;
+                minute = 0;
+                second = 0;
                 continue;
             }
 
-            var dayOfMonthMatch = daysOfMonth.Contains(candidate.Day);
-            var dayOfWeekMatch = daysOfWeek.Contains((int)candidate.DayOfWeek);
-            var dayMatches = CalculateDayMatches(dayOfMonthMatch, dayOfWeekMatch);
-
-            if (!dayMatches)
+            var maxDay = DaysInMonth(year, month);
+            if (day > maxDay)
             {
-                candidate = new DateTimeOffset(candidate.Year, candidate.Month, candidate.Day, 0, 0, 0, candidate.Offset).AddDays(1);
+                month++;
+                if (month > MonthMax)
+                {
+                    month = MonthMin;
+                    year++;
+                }
+
+                day = 1;
+                hour = 0;
+                minute = 0;
+                second = 0;
                 continue;
             }
 
-            if (!hours.Contains(candidate.Hour))
+            if (!IsDayMatch(year, month, day))
             {
-                candidate = new DateTimeOffset(candidate.Year, candidate.Month, candidate.Day, candidate.Hour, 0, 0, candidate.Offset).AddHours(1);
+                day++;
+                hour = 0;
+                minute = 0;
+                second = 0;
+                if (day > maxDay)
+                {
+                    month++;
+                    if (month > MonthMax)
+                    {
+                        month = MonthMin;
+                        year++;
+                    }
+
+                    day = 1;
+                }
+
                 continue;
             }
 
-            if (!minutes.Contains(candidate.Minute))
+            var nextHour = FindNextBit(hoursMask, hour, 23);
+            if (nextHour < 0)
             {
-                candidate = new DateTimeOffset(candidate.Year, candidate.Month, candidate.Day, candidate.Hour, candidate.Minute, 0, candidate.Offset).AddMinutes(1);
+                day++;
+                hour = 0;
+                minute = 0;
+                second = 0;
+                if (day > maxDay)
+                {
+                    month++;
+                    if (month > MonthMax)
+                    {
+                        month = MonthMin;
+                        year++;
+                    }
+
+                    day = 1;
+                }
+
                 continue;
             }
 
-            if (!seconds.Contains(candidate.Second))
+            if (nextHour != hour)
             {
-                candidate = candidate.AddSeconds(1);
+                hour = nextHour;
+                minute = 0;
+                second = 0;
+            }
+
+            var nextMinute = FindNextBit(minutesMask, minute, 59);
+            if (nextMinute < 0)
+            {
+                hour++;
+                minute = 0;
+                second = 0;
+                if (hour > 23)
+                {
+                    day++;
+                    hour = 0;
+                    if (day > maxDay)
+                    {
+                        month++;
+                        if (month > MonthMax)
+                        {
+                            month = MonthMin;
+                            year++;
+                        }
+
+                        day = 1;
+                    }
+                }
+
                 continue;
             }
 
-            return candidate;
+            minute = nextMinute;
+
+            if (year == from.Year
+                && month == from.Month
+                && day == from.Day
+                && hour == from.Hour
+                && minute == from.Minute
+                && second == from.Second)
+            {
+                day++;
+                hour = 0;
+                minute = 0;
+                second = 0;
+                AdjustDay(ref year, ref month, ref day);
+
+                continue;
+            }
+
+            return new DateTimeOffset(year, month, day, hour, minute, second, offset);
         }
 
         return null;
     }
 
-    private static HashSet<int> ParseField(string field, int min, int max, string name)
+    private DateTimeOffset? GetNextOccurrenceWithSeconds(DateTimeOffset from)
     {
-        var result = new HashSet<int>();
-        foreach (var term in field.Split(','))
+        var offset = from.Offset;
+        var year = from.Year;
+        var month = from.Month;
+        var day = from.Day;
+        var hour = from.Hour;
+        var minute = from.Minute;
+        var second = from.Second + 1;
+
+        if (second > 59)
         {
-            if (term.Length == 0)
+            second = 0;
+            minute++;
+        }
+
+        if (minute > 59)
+        {
+            minute = 0;
+            hour++;
+        }
+
+        if (hour > 23)
+        {
+            hour = 0;
+            day++;
+            AdjustDay(ref year, ref month, ref day);
+        }
+
+        var maxYear = year + 5;
+
+        while (year < maxYear)
+        {
+            if ((monthsMask & (1 << month)) == 0)
+            {
+                if (!AdvanceToNextMonth(ref year, ref month, maxYear))
+                {
+                    break;
+                }
+
+                day = 1;
+                hour = 0;
+                minute = 0;
+                second = 0;
+                continue;
+            }
+
+            var maxDay = DaysInMonth(year, month);
+            if (day > maxDay)
+            {
+                month++;
+                if (month > MonthMax)
+                {
+                    month = MonthMin;
+                    year++;
+                }
+
+                day = 1;
+                hour = 0;
+                minute = 0;
+                second = 0;
+                continue;
+            }
+
+            if (!IsDayMatch(year, month, day))
+            {
+                day++;
+                hour = 0;
+                minute = 0;
+                second = 0;
+                if (day > maxDay)
+                {
+                    month++;
+                    if (month > MonthMax)
+                    {
+                        month = MonthMin;
+                        year++;
+                    }
+
+                    day = 1;
+                }
+
+                continue;
+            }
+
+            var nextHour = FindNextBit(hoursMask, hour, 23);
+            if (nextHour < 0)
+            {
+                day++;
+                hour = 0;
+                minute = 0;
+                second = 0;
+                if (day > maxDay)
+                {
+                    month++;
+                    if (month > MonthMax)
+                    {
+                        month = MonthMin;
+                        year++;
+                    }
+
+                    day = 1;
+                }
+
+                continue;
+            }
+
+            if (nextHour != hour)
+            {
+                hour = nextHour;
+                minute = 0;
+                second = 0;
+            }
+
+            var nextMinute = FindNextBit(minutesMask, minute, 59);
+            if (nextMinute < 0)
+            {
+                hour++;
+                minute = 0;
+                second = 0;
+                if (hour > 23)
+                {
+                    day++;
+                    hour = 0;
+                    if (day > maxDay)
+                    {
+                        month++;
+                        if (month > MonthMax)
+                        {
+                            month = MonthMin;
+                            year++;
+                        }
+
+                        day = 1;
+                    }
+                }
+
+                continue;
+            }
+
+            minute = nextMinute;
+
+            var nextSecond = FindNextBit(secondsMask, second, 59);
+            if (nextSecond < 0)
+            {
+                var resetSecond = FindNextBit(secondsMask, 0, 59);
+                if (resetSecond < 0)
+                {
+                    return null;
+                }
+
+                minute++;
+                second = resetSecond;
+                if (minute > 59)
+                {
+                    minute = 0;
+                    hour++;
+                    if (hour > 23)
+                    {
+                        hour = 0;
+                        day++;
+                        if (day > maxDay)
+                        {
+                            month++;
+                            if (month > MonthMax)
+                            {
+                                month = MonthMin;
+                                year++;
+                            }
+
+                            day = 1;
+                        }
+                    }
+                }
+
+                continue;
+            }
+
+            second = nextSecond;
+
+            if (year == from.Year
+                && month == from.Month
+                && day == from.Day
+                && hour == from.Hour
+                && minute == from.Minute
+                && second == from.Second)
+            {
+                day++;
+                hour = 0;
+                minute = 0;
+                second = 0;
+                AdjustDay(ref year, ref month, ref day);
+
+                continue;
+            }
+
+            return new DateTimeOffset(year, month, day, hour, minute, second, offset);
+        }
+
+        return null;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static byte GetFlags(ReadOnlySpan<char> dayOfMonthField, ReadOnlySpan<char> dayOfWeekField)
+    {
+        byte localFlags = 0;
+        if (!IsWildcard(dayOfMonthField))
+        {
+            localFlags |= DayOfMonthRestrictedFlag;
+        }
+
+        if (!IsWildcard(dayOfWeekField))
+        {
+            localFlags |= DayOfWeekRestrictedFlag;
+        }
+
+        return localFlags;
+    }
+
+    private static int SplitFields(ReadOnlySpan<char> expression, Span<Range> ranges)
+    {
+        var count = 0;
+        var index = 0;
+        while (index < expression.Length && count < ranges.Length)
+        {
+            while (index < expression.Length && expression[index] == ' ')
+            {
+                index++;
+            }
+
+            if (index >= expression.Length)
+            {
+                break;
+            }
+
+            var start = index;
+            while (index < expression.Length && expression[index] != ' ')
+            {
+                index++;
+            }
+
+            ranges[count++] = start..index;
+        }
+
+        while (index < expression.Length)
+        {
+            if (expression[index] != ' ')
+            {
+                return count + 1;
+            }
+
+            index++;
+        }
+
+        return count;
+    }
+
+    private static ulong ParseFieldMask64(ReadOnlySpan<char> field, int min, int max, string name)
+    {
+        var result = 0UL;
+        var tokenStart = 0;
+
+        while (tokenStart <= field.Length)
+        {
+            var tokenEnd = tokenStart;
+            while (tokenEnd < field.Length && field[tokenEnd] != ',')
+            {
+                tokenEnd++;
+            }
+
+            var term = field[tokenStart..tokenEnd];
+            if (term.IsEmpty)
             {
                 throw new FormatException($"Invalid {name} field: '{field}'.");
             }
 
-            var step = 1;
-            var rangePart = term;
             var slashIndex = term.IndexOf('/');
-            if (slashIndex >= 0)
-            {
-                rangePart = term[..slashIndex];
-                var stepPart = term[(slashIndex + 1)..];
-                if (!int.TryParse(stepPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out step) || step <= 0)
-                {
-                    throw new FormatException($"Invalid step in {name} field: '{term}'.");
-                }
-            }
+            var rangePart = slashIndex >= 0 ? term[..slashIndex] : term;
+            var step = slashIndex >= 0 ? ParsePositiveInt32(term[(slashIndex + 1)..], name, term) : 1;
 
             int start;
             int end;
-            if (rangePart == "*")
+
+            if (IsWildcard(rangePart))
             {
                 start = min;
                 end = max;
@@ -196,21 +579,23 @@ public sealed class CronExpression
                 var dashIndex = rangePart.IndexOf('-');
                 if (dashIndex > 0)
                 {
-                    var startPart = rangePart[..dashIndex];
-                    var endPart = rangePart[(dashIndex + 1)..];
-                    if (!int.TryParse(startPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out start)
-                        || !int.TryParse(endPart, NumberStyles.Integer, CultureInfo.InvariantCulture, out end))
+                    if (!TryParseUInt32(rangePart[..dashIndex], out var parsedStart)
+                        || !TryParseUInt32(rangePart[(dashIndex + 1)..], out var parsedEnd))
                     {
                         throw new FormatException($"Invalid range in {name} field: '{term}'.");
                     }
+
+                    start = (int)parsedStart;
+                    end = (int)parsedEnd;
                 }
                 else
                 {
-                    if (!int.TryParse(rangePart, NumberStyles.Integer, CultureInfo.InvariantCulture, out start))
+                    if (!TryParseUInt32(rangePart, out var parsedValue))
                     {
                         throw new FormatException($"Invalid value in {name} field: '{term}'.");
                     }
 
+                    start = (int)parsedValue;
                     end = slashIndex >= 0 ? max : start;
                 }
             }
@@ -222,25 +607,181 @@ public sealed class CronExpression
 
             for (var value = start; value <= end; value += step)
             {
-                result.Add(value);
+                result |= 1UL << value;
             }
+
+            if (tokenEnd == field.Length)
+            {
+                break;
+            }
+
+            tokenStart = tokenEnd + 1;
         }
 
         return result;
     }
 
-    private bool CalculateDayMatches(bool dayOfMonthMatch, bool dayOfWeekMatch)
+    private static int ParsePositiveInt32(ReadOnlySpan<char> value, string name, ReadOnlySpan<char> term)
     {
-        if (dayOfMonthRestricted && dayOfWeekRestricted)
+        if (!TryParseUInt32(value, out var parsedValue) || parsedValue == 0 || parsedValue > int.MaxValue)
+        {
+            throw new FormatException($"Invalid step in {name} field: '{term}'.");
+        }
+
+        return (int)parsedValue;
+    }
+
+    private static bool TryParseUInt32(ReadOnlySpan<char> value, out uint result)
+    {
+        if (value.IsEmpty)
+        {
+            result = 0;
+            return false;
+        }
+
+        if (value.Length is >= 1 and <= 4)
+        {
+            var accumulator = 0u;
+            foreach (var c in value)
+            {
+                var digit = c - '0';
+                if ((uint)digit > 9)
+                {
+                    result = 0;
+                    return false;
+                }
+
+                accumulator = (accumulator * 10) + (uint)digit;
+            }
+
+            result = accumulator;
+            return true;
+        }
+
+        if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out result))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsWildcard(ReadOnlySpan<char> value) => value.Length == 1 && value[0] == '*';
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int DaysInMonth(int year, int month)
+    {
+        var days = Unsafe.Add(ref MemoryMarshal.GetReference(DaysInMonthTable), month);
+        if (month == 2 && IsLeapYear(year))
+        {
+            days = 29;
+        }
+
+        return days;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsLeapYear(int year)
+        => (year & 3) == 0 && ((year % 25) != 0 || (year & 15) == 0);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool IsDayMatch(int year, int month, int day)
+    {
+        var localFlags = flags;
+        if ((localFlags & (DayOfMonthRestrictedFlag | DayOfWeekRestrictedFlag)) == 0)
+        {
+            return true;
+        }
+
+        var dayOfMonthMatch = (daysOfMonthMask & (1U << day)) != 0;
+        var dayOfWeekMatch = (daysOfWeekMask & (1 << CalcDayOfWeek(year, month, day))) != 0;
+
+        if ((localFlags & (DayOfMonthRestrictedFlag | DayOfWeekRestrictedFlag)) == (DayOfMonthRestrictedFlag | DayOfWeekRestrictedFlag))
         {
             return dayOfMonthMatch || dayOfWeekMatch;
         }
 
-        if (dayOfMonthRestricted)
+        return (localFlags & DayOfMonthRestrictedFlag) != 0 ? dayOfMonthMatch : dayOfWeekMatch;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int CalcDayOfWeek(int year, int month, int day)
+    {
+        if (month < 3)
         {
-            return dayOfMonthMatch;
+            year--;
         }
 
-        return dayOfWeekRestricted ? dayOfWeekMatch : true;
+        var monthOffset = Unsafe.Add(ref MemoryMarshal.GetReference(DayOfWeekTable), month - 1);
+        return (year + (year / 4) - (year / 100) + (year / 400) + monthOffset + day) % 7;
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private bool AdvanceToNextMonth(ref int year, ref int month, int maxYear)
+    {
+        var nextMonth = FindNextBit(monthsMask, month + 1, MonthMax);
+        if (nextMonth >= 0)
+        {
+            month = nextMonth;
+            return true;
+        }
+
+        year++;
+        if (year >= maxYear)
+        {
+            return false;
+        }
+
+        nextMonth = FindNextBit(monthsMask, MonthMin, MonthMax);
+        if (nextMonth < 0)
+        {
+            return false;
+        }
+
+        month = nextMonth;
+        return true;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void AdjustDay(ref int year, ref int month, ref int day)
+    {
+        var maxDay = DaysInMonth(year, month);
+        if (day > maxDay)
+        {
+            day = 1;
+            month++;
+            if (month > MonthMax)
+            {
+                month = MonthMin;
+                year++;
+            }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int FindNextBit(ulong mask, int startBit, int maxBit)
+    {
+        var filteredMask = mask & ~((1UL << startBit) - 1);
+        if (filteredMask == 0)
+        {
+            return -1;
+        }
+
+        var position = BitOperations.TrailingZeroCount(filteredMask);
+        return position <= maxBit ? position : -1;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int FindNextBit(uint mask, int startBit, int maxBit)
+    {
+        var filteredMask = mask & ~((1U << startBit) - 1U);
+        if (filteredMask == 0)
+        {
+            return -1;
+        }
+
+        var position = BitOperations.TrailingZeroCount(filteredMask);
+        return position <= maxBit ? position : -1;
+    }
+
 }

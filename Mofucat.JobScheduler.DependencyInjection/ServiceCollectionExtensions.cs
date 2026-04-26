@@ -21,6 +21,7 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
+        services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<Mofucat.JobScheduler.JobScheduler>();
         var registrations = GetOrCreateRegistrations(services);
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Mofucat.JobScheduler.SchedulerHostedService>());
