@@ -129,13 +129,7 @@ public sealed class CronExpression
 
             var dayOfMonthMatch = daysOfMonth.Contains(candidate.Day);
             var dayOfWeekMatch = daysOfWeek.Contains((int)candidate.DayOfWeek);
-            var dayMatches = dayOfMonthRestricted switch
-            {
-                true when dayOfWeekRestricted => dayOfMonthMatch || dayOfWeekMatch,
-                true => dayOfMonthMatch,
-                false when dayOfWeekRestricted => dayOfWeekMatch,
-                _ => true,
-            };
+            var dayMatches = CalculateDayMatches(dayOfMonthMatch, dayOfWeekMatch);
 
             if (!dayMatches)
             {
@@ -233,5 +227,20 @@ public sealed class CronExpression
         }
 
         return result;
+    }
+
+    private bool CalculateDayMatches(bool dayOfMonthMatch, bool dayOfWeekMatch)
+    {
+        if (dayOfMonthRestricted && dayOfWeekRestricted)
+        {
+            return dayOfMonthMatch || dayOfWeekMatch;
+        }
+
+        if (dayOfMonthRestricted)
+        {
+            return dayOfMonthMatch;
+        }
+
+        return dayOfWeekRestricted ? dayOfWeekMatch : true;
     }
 }
