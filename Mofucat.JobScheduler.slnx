@@ -18,4 +18,6 @@
   </Folder>
   <Folder Name="/Example/">
   </Folder>
+  <Project Path="Example/Example.csproj" />
+  <Project Path="Mofucat.JobScheduler.Tests/Mofucat.JobScheduler.Tests.csproj" />
 </Solution>
