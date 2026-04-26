@@ -1,6 +1,5 @@
 namespace Mofucat.JobScheduler;
 
-using System.Globalization;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -639,30 +638,27 @@ public sealed class CronExpression
             return false;
         }
 
-        if (value.Length is >= 1 and <= 4)
+        var accumulator = 0u;
+        foreach (var c in value)
         {
-            var accumulator = 0u;
-            foreach (var c in value)
+            var digit = c - '0';
+            if ((uint)digit > 9)
             {
-                var digit = c - '0';
-                if ((uint)digit > 9)
-                {
-                    result = 0;
-                    return false;
-                }
-
-                accumulator = (accumulator * 10) + (uint)digit;
+                result = 0;
+                return false;
             }
 
-            result = accumulator;
-            return true;
+            var next = (accumulator * 10) + (uint)digit;
+            if (next < accumulator)
+            {
+                result = 0;
+                return false;
+            }
+
+            accumulator = next;
         }
 
-        if (!uint.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out result))
-        {
-            return false;
-        }
-
+        result = accumulator;
         return true;
     }
 
