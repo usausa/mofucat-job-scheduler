@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <CodeAnalysisRuleSet>..\Analyzers.ruleset</CodeAnalysisRuleSet>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>Mofucat.JobScheduler</PackageId>
+    <Title>Mofucat.JobScheduler</Title>
+    <Description>Job scheduler.</Description>
+    <PackageTags>scheduler cron</PackageTags>
+  </PropertyGroup>
+
+</Project>

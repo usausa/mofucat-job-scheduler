@@ -1,0 +1,21 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="AGENTS.md" />
+    <File Path="Analyzers.ruleset" />
+    <File Path="CLAUDE.md" />
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Build.targets" />
+    <File Path="Mofucat.JobScheduler.sln.DotSettings" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+  </Folder>
+  <Folder Name="/Library/">
+    <Project Path="Mofucat.JobScheduler.DependencyInjection/Mofucat.JobScheduler.DependencyInjection.csproj" />
+    <Project Path="Mofucat.JobScheduler/Mofucat.JobScheduler.csproj" />
+  </Folder>
+  <Folder Name="/Example/">
+  </Folder>
+</Solution>
