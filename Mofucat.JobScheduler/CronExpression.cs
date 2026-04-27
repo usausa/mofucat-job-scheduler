@@ -104,21 +104,14 @@ public sealed class CronExpression
     }
 
     //--------------------------------------------------------------------------------
-    // GetNextOccurrence
+    // Next
     //--------------------------------------------------------------------------------
 
-    /// <summary>
-    /// 指定日時より後で最初に一致する実行日時を取得します。
-    /// </summary>
-    /// <param name="from">基準となる日時です。</param>
-    /// <returns>次回実行日時。見つからない場合は <see langword="null"/> です。</returns>
-    public DateTimeOffset? GetNextOccurrence(DateTimeOffset from)
-        => includesSeconds ? GetNextOccurrenceWithSeconds(from) : GetNextOccurrenceWithoutSeconds(from);
+    public DateTimeOffset? GetNextOccurrence(DateTimeOffset from) =>
+        includesSeconds ? GetNextOccurrenceWithSeconds(from) : GetNextOccurrenceWithoutSeconds(from);
 
     private DateTimeOffset? GetNextOccurrenceWithoutSeconds(DateTimeOffset from)
     {
-        // 秒を含まない 5 フィールド形式では、分単位で次回候補を探索する。
-        // 入力の UTC オフセットはそのまま維持し、ローカルな各要素だけを進める。
         var offset = from.Offset;
         var year = from.Year;
         var month = from.Month;
@@ -129,7 +122,6 @@ public sealed class CronExpression
 
         if (from.Second >= 59)
         {
-            // 59 秒台をまたぐ場合は、次の分から探索を開始する。
             minute++;
         }
 
@@ -147,11 +139,9 @@ public sealed class CronExpression
         }
 
         var maxYear = year + 5;
-
-        // 探索範囲を無制限にせず、将来 5 年以内で打ち切る。
         while (year < maxYear)
         {
-            // 月が条件に一致しない場合は、次の一致月まで日付と時刻を初期化して進める。
+            // 次の一致月まで日付と時刻を初期化して進める
             if ((monthsMask & (1 << month)) == 0)
             {
                 if (!AdvanceToNextMonth(ref year, ref month, maxYear))
@@ -169,7 +159,7 @@ public sealed class CronExpression
             var maxDay = DaysInMonth(year, month);
             if (day > maxDay)
             {
-                // 月末を超えた場合は翌月の先頭へ進める。
+                // 月末を超えた場合は翌月の先頭へ進める
                 month++;
                 if (month > MonthMax)
                 {
@@ -186,7 +176,7 @@ public sealed class CronExpression
 
             if (!IsDayMatch(year, month, day))
             {
-                // 日条件が一致しない場合は次の日を試す。
+                // 日条件が一致しない場合は次の日を試す
                 day++;
                 hour = 0;
                 minute = 0;
@@ -209,7 +199,7 @@ public sealed class CronExpression
             var nextHour = FindNextBit(hoursMask, hour, 23);
             if (nextHour < 0)
             {
-                // 当日に一致する時が無い場合は翌日に進める。
+                // 当日に一致する時が無い場合は翌日に進める
                 day++;
                 hour = 0;
                 minute = 0;
@@ -231,7 +221,7 @@ public sealed class CronExpression
 
             if (nextHour != hour)
             {
-                // 時が進んだ場合は下位要素を最小値へ戻して再探索する。
+                // 時が進んだ場合は下位要素を最小値へ戻して再探索
                 hour = nextHour;
                 minute = 0;
                 second = 0;
@@ -240,7 +230,7 @@ public sealed class CronExpression
             var nextMinute = FindNextBit(minutesMask, minute, 59);
             if (nextMinute < 0)
             {
-                // 当該時刻内で一致する分が無ければ次の時へ進める。
+                // 当該時刻内で一致する分が無ければ次の時へ進める
                 hour++;
                 minute = 0;
                 second = 0;
@@ -266,14 +256,9 @@ public sealed class CronExpression
 
             minute = nextMinute;
 
-            if ((year == from.Year)
-                && (month == from.Month)
-                && (day == from.Day)
-                && (hour == from.Hour)
-                && (minute == from.Minute)
-                && (second == from.Second))
+            if ((year == from.Year) && (month == from.Month) && (day == from.Day) && (hour == from.Hour) && (minute == from.Minute) && (second == from.Second))
             {
-                // 基準時刻ちょうどは「次回」ではないため、翌候補へ進める。
+                // 基準時刻ちょうどは次回ではないため、翌候補へ進める
                 day++;
                 hour = 0;
                 minute = 0;
@@ -291,8 +276,6 @@ public sealed class CronExpression
 
     private DateTimeOffset? GetNextOccurrenceWithSeconds(DateTimeOffset from)
     {
-        // 秒を含む 6 フィールド形式では、基準時刻の次の秒から探索する。
-        // 同一秒の再ヒットを避けるため、必ず +1 秒した状態から始める。
         var offset = from.Offset;
         var year = from.Year;
         var month = from.Month;
@@ -326,7 +309,7 @@ public sealed class CronExpression
         {
             if ((monthsMask & (1 << month)) == 0)
             {
-                // 条件に一致する月までスキップする。
+                // 条件に一致する月までスキップ
                 if (!AdvanceToNextMonth(ref year, ref month, maxYear))
                 {
                     break;
@@ -358,7 +341,7 @@ public sealed class CronExpression
 
             if (!IsDayMatch(year, month, day))
             {
-                // 日条件は day-of-month と day-of-week の組み合わせ規則に従って判定する。
+                // 日条件は day-of-month と day-of-week の組み合わせ規則に従って判定
                 day++;
                 hour = 0;
                 minute = 0;
@@ -402,7 +385,7 @@ public sealed class CronExpression
 
             if (nextHour != hour)
             {
-                // 時が変わったら分・秒は最初の候補からやり直す。
+                // 時が変わったら分・秒は最初の候補からやり直す
                 hour = nextHour;
                 minute = 0;
                 second = 0;
@@ -439,11 +422,10 @@ public sealed class CronExpression
             var nextSecond = FindNextBit(secondsMask, second, 59);
             if (nextSecond < 0)
             {
-                // 秒が見つからない場合は次の分へ繰り上げる。
+                // 秒が見つからない場合は次の分へ繰り上げる
                 var resetSecond = FindNextBit(secondsMask, 0, 59);
                 if (resetSecond < 0)
                 {
-                    // 秒フィールドが空になることは通常無いが、防御的に null を返す。
                     return null;
                 }
 
@@ -476,14 +458,9 @@ public sealed class CronExpression
 
             second = nextSecond;
 
-            if ((year == from.Year)
-                && (month == from.Month)
-                && (day == from.Day)
-                && (hour == from.Hour)
-                && (minute == from.Minute)
-                && (second == from.Second))
+            if ((year == from.Year) && (month == from.Month) && (day == from.Day) && (hour == from.Hour) && (minute == from.Minute) && (second == from.Second))
             {
-                // 現在時刻そのものは返さず、以後の候補を探す。
+                // 現在時刻そのものは返さず、以後の候補を探す
                 day++;
                 hour = 0;
                 minute = 0;
@@ -500,7 +477,7 @@ public sealed class CronExpression
     }
 
     //--------------------------------------------------------------------------------
-    // Helper
+    // Parse helper
     //--------------------------------------------------------------------------------
 
     private static int SplitFields(ReadOnlySpan<char> expression, Span<Range> ranges)
@@ -608,8 +585,8 @@ public sealed class CronExpression
                 if (dashIndex > 0)
                 {
                     // a-b
-                    if (!TryParseUInt32(rangePart[..dashIndex], out var parsedStart) ||
-                        !TryParseUInt32(rangePart[(dashIndex + 1)..], out var parsedEnd))
+                    if (!TryParseUInt32(rangePart[..dashIndex], out var parsedStart)
+                        || !TryParseUInt32(rangePart[(dashIndex + 1)..], out var parsedEnd))
                     {
                         throw new FormatException($"Invalid range in field. name=[{name}], term=[{term}]");
                     }
@@ -622,7 +599,7 @@ public sealed class CronExpression
                     // Single or a/n
                     if (!TryParseUInt32(rangePart, out var parsedValue))
                     {
-                        throw new FormatException($"Invalid value in {name} field: '{term}'.");
+                        throw new FormatException($"Invalid value in field. name=[{name}], term=[{term}]");
                     }
 
                     start = (int)parsedValue;
@@ -655,9 +632,9 @@ public sealed class CronExpression
     private static ulong BuildMask(int start, int end, int step)
     {
         var result = 0UL;
-        for (var value = start; value <= end; value += step)
+        for (var i = start; i <= end; i += step)
         {
-            result |= 1UL << value;
+            result |= 1UL << i;
         }
 
         return result;
@@ -665,7 +642,6 @@ public sealed class CronExpression
 
     private static int ParsePositiveInt32(ReadOnlySpan<char> value, string name, ReadOnlySpan<char> term)
     {
-        // step は 1 以上の整数のみ許容する。
         if ((!TryParseUInt32(value, out var parsedValue)) || (parsedValue == 0) || (parsedValue > int.MaxValue))
         {
             throw new FormatException($"Invalid step in field. name=[{name}], term=[{term}]");
@@ -676,7 +652,6 @@ public sealed class CronExpression
 
     private static bool TryParseUInt32(ReadOnlySpan<char> value, out uint result)
     {
-        // ReadOnlySpan から割り当てなしで非負整数をパースする。
         if (value.IsEmpty)
         {
             result = 0;
@@ -686,7 +661,6 @@ public sealed class CronExpression
         var accumulator = 0u;
         foreach (var c in value)
         {
-            // 数字以外の文字を含む場合は失敗とする。
             var digit = c - '0';
             if ((uint)digit > 9)
             {
@@ -697,7 +671,7 @@ public sealed class CronExpression
             var next = (accumulator * 10) + (uint)digit;
             if (next < accumulator)
             {
-                // uint のオーバーフローを検出する。
+                // Overflow
                 result = 0;
                 return false;
             }
@@ -712,30 +686,30 @@ public sealed class CronExpression
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static byte GetFlags(ReadOnlySpan<char> dayOfMonthField, ReadOnlySpan<char> dayOfWeekField)
     {
-        byte localFlags = 0;
+        var flags = (byte)0;
         if (!IsWildcard(dayOfMonthField))
         {
-            localFlags |= DayOfMonthRestrictedFlag;
+            flags |= DayOfMonthRestrictedFlag;
         }
 
         if (!IsWildcard(dayOfWeekField))
         {
-            localFlags |= DayOfWeekRestrictedFlag;
+            flags |= DayOfWeekRestrictedFlag;
         }
 
-        return localFlags;
+        return flags;
     }
 
     private static bool IsWildcard(ReadOnlySpan<char> value) => (value.Length == 1) && (value[0] == '*');
 
     //--------------------------------------------------------------------------------
-    // Date helpers
+    // Date helper
     //--------------------------------------------------------------------------------
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int DaysInMonth(int year, int month)
     {
-        // 通常月はテーブル参照、2 月だけうるう年補正を加える。
+        // 通常月はテーブル参照、2月はうるう年補正
         var days = Unsafe.Add(ref MemoryMarshal.GetReference(DaysInMonthTable), month);
         if ((month == 2) && IsLeapYear(year))
         {
@@ -746,44 +720,42 @@ public sealed class CronExpression
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsLeapYear(int year)
-        // DateTime.IsLeapYear より軽量なビット演算ベースのうるう年判定。
-        => ((year & 3) == 0) && (((year % 25) != 0) || ((year & 15) == 0));
+    private static bool IsLeapYear(int year) =>
+        ((year & 3) == 0) && (((year % 25) != 0) || ((year & 15) == 0));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool IsDayMatch(int year, int month, int day)
     {
-        // 日付条件なしなら、すべての日を一致とみなす。
+        // 日付条件なしならすべての日を一致
         var localFlags = flags;
         if ((localFlags & (DayOfMonthRestrictedFlag | DayOfWeekRestrictedFlag)) == 0)
         {
             return true;
         }
 
-        // 月内の日付一致と曜日一致をそれぞれ独立に評価する。
+        // 月内の日付一致と曜日一致をそれぞれ独立に評価
         var dayOfMonthMatch = (daysOfMonthMask & (1U << day)) != 0;
         var dayOfWeekMatch = (daysOfWeekMask & (1 << CalcDayOfWeek(year, month, day))) != 0;
 
         if ((localFlags & (DayOfMonthRestrictedFlag | DayOfWeekRestrictedFlag)) == (DayOfMonthRestrictedFlag | DayOfWeekRestrictedFlag))
         {
-            // 両方に制約がある場合は cron の仕様に従って OR 条件で判定する。
+            // 両方に制約がある場合は cron の仕様に従って OR 条件で判定する
             return dayOfMonthMatch || dayOfWeekMatch;
         }
 
-        // 片方だけ制約がある場合は、その条件のみで判定する。
+        // 片方だけ制約がある場合は、その条件のみで判定する
         return (localFlags & DayOfMonthRestrictedFlag) != 0 ? dayOfMonthMatch : dayOfWeekMatch;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int CalcDayOfWeek(int year, int month, int day)
     {
-        // 1 月と 2 月を前年の 13,14 月相当として扱う簡易曜日計算を行う。
+        // 1 月と 2 月を前年の 13,14 月相当として扱う簡易曜日計算
         if (month < 3)
         {
             year--;
         }
 
-        // 返値は 0=日曜 ～ 6=土曜 の想定。
         var monthOffset = Unsafe.Add(ref MemoryMarshal.GetReference(DayOfWeekTable), month - 1);
         return (year + (year / 4) - (year / 100) + (year / 400) + monthOffset + day) % 7;
     }
@@ -791,7 +763,7 @@ public sealed class CronExpression
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool AdvanceToNextMonth(ref int year, ref int month, int maxYear)
     {
-        // 同一年内で次に一致する月を優先して探す。
+        // 同一年内で次に一致する月を優先して探す
         var nextMonth = FindNextBit(monthsMask, month + 1, MonthMax);
         if (nextMonth >= 0)
         {
@@ -799,7 +771,7 @@ public sealed class CronExpression
             return true;
         }
 
-        // 同年に候補が無ければ翌年へ進み、最初の一致月を探す。
+        // 同年に候補が無ければ翌年へ進み、最初の一致月を探す
         year++;
         if (year >= maxYear)
         {
@@ -819,7 +791,7 @@ public sealed class CronExpression
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void AdjustDay(ref int year, ref int month, ref int day)
     {
-        // day を 1 日進めた後、月末超過なら年月を繰り上げる。
+        // day を 1 日進めた後、月末超過なら年月を繰り上げ
         var maxDay = DaysInMonth(year, month);
         if (day > maxDay)
         {
@@ -834,13 +806,12 @@ public sealed class CronExpression
     }
 
     //--------------------------------------------------------------------------------
-    // Bit helpers
+    // Bit helper
     //--------------------------------------------------------------------------------
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int FindNextBit(ulong mask, int startBit, int maxBit)
     {
-        // startBit 未満をマスクしてから、最下位の 1 ビット位置を調べる。
         var filteredMask = mask & ~((1UL << startBit) - 1);
         if (filteredMask == 0)
         {
@@ -854,7 +825,6 @@ public sealed class CronExpression
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int FindNextBit(uint mask, int startBit, int maxBit)
     {
-        // 32 ビット版。hour/day-of-month の探索に使う。
         var filteredMask = mask & ~((1U << startBit) - 1U);
         if (filteredMask == 0)
         {
