@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
+#pragma warning disable CA1848
 public sealed class SchedulerHostedService(JobScheduler scheduler, SchedulerRegistrations registrations, IServiceProvider rootProvider) : IHostedService
 {
     private readonly ILogger<JobScheduler> logger = rootProvider.GetService<ILogger<JobScheduler>>() ?? NullLogger<JobScheduler>.Instance;
@@ -37,3 +38,4 @@ public sealed class SchedulerHostedService(JobScheduler scheduler, SchedulerRegi
         logger.LogInformation("Scheduler stopped.");
     }
 }
+#pragma warning restore CA1848

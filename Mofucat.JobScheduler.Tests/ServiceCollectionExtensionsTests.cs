@@ -1,9 +1,5 @@
 namespace Mofucat.JobScheduler.Tests;
 
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Mofucat.JobScheduler.DependencyInjection;
-
 #pragma warning disable CA1812
 public sealed class ServiceCollectionExtensionsTests
 {

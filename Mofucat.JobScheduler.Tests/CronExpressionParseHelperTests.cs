@@ -1,6 +1,5 @@
 namespace Mofucat.JobScheduler.Tests;
 
-#pragma warning disable CA1812
 public sealed class CronExpressionParseHelperTests
 {
     [Theory]
@@ -13,4 +12,3 @@ public sealed class CronExpressionParseHelperTests
         Assert.Equal(value, expression.Expression);
     }
 }
-#pragma warning restore CA1812

@@ -70,7 +70,7 @@ public sealed class JobScheduler(TimeProvider? timeProvider = null) : IDisposabl
             cancellationTokenSource = new CancellationTokenSource();
             wakeup = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            var now = this.timeProvider.GetUtcNow();
+            var now = timeProvider.GetUtcNow();
             foreach (var job in jobs.Values)
             {
                 job.Next = job.Cron.GetNextOccurrence(now);
@@ -104,7 +104,11 @@ public sealed class JobScheduler(TimeProvider? timeProvider = null) : IDisposabl
             SignalWakeupUnsafe();
         }
 
-        currentCancellationTokenSource?.Cancel();
+        if (currentCancellationTokenSource is not null)
+        {
+            await currentCancellationTokenSource.CancelAsync().ConfigureAwait(false);
+        }
+
         if (currentLoopTask is not null)
         {
             try
@@ -379,6 +383,7 @@ public sealed class JobScheduler(TimeProvider? timeProvider = null) : IDisposabl
 
     private async Task FireJobAsync(ScheduledJob job, DateTimeOffset fireTime, CancellationToken cancellationToken)
     {
+#pragma warning disable CA1031
         try
         {
             await job.Job.ExecuteAsync(fireTime, cancellationToken).ConfigureAwait(false);
@@ -386,9 +391,10 @@ public sealed class JobScheduler(TimeProvider? timeProvider = null) : IDisposabl
         catch (OperationCanceledException)
         {
         }
-        catch (Exception exception)
+        catch (Exception ex)
         {
-            JobError?.Invoke(this, new JobErrorEventArgs(job.Name, exception));
+            JobError?.Invoke(this, new JobErrorEventArgs(job.Name, ex));
         }
+#pragma warning restore CA1031
     }
 }

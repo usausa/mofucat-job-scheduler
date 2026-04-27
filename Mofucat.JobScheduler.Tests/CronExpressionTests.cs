@@ -1,6 +1,5 @@
 namespace Mofucat.JobScheduler.Tests;
 
-#pragma warning disable CA1812
 public sealed class CronExpressionTests
 {
     [Fact]
@@ -92,4 +91,3 @@ public sealed class CronExpressionTests
         Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 10, TimeSpan.Zero), next);
     }
 }
-#pragma warning restore CA1812

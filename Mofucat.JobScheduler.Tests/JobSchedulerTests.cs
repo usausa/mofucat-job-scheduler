@@ -1,33 +1,34 @@
 namespace Mofucat.JobScheduler.Tests;
 
-using System.Collections.Concurrent;
-
-#pragma warning disable CA1812
 public sealed class JobSchedulerTests
 {
     [Fact]
     public async Task StartWhenJobRunsThenUsesTimeProviderForExecutionTime()
     {
         var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
-        var scheduler = new JobScheduler(timeProvider);
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
         var job = new RecordingJob();
         scheduler.AddJob("*/10 * * * * *", job, "sample");
 
         scheduler.Start();
         timeProvider.Advance(TimeSpan.FromSeconds(5));
 
-        var nextRun = await job.WaitForExecutionAsync().ConfigureAwait(false);
+        var nextRun = await job.WaitForExecutionAsync();
 
         Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 10, TimeSpan.Zero), nextRun);
 
-        await scheduler.StopAsync().ConfigureAwait(false);
+        await scheduler.StopAsync();
     }
 
     [Fact]
     public async Task RemoveAllJobsWhenSchedulerIsRunningThenRemovesJobsAndPreventsExecution()
     {
         var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
-        var scheduler = new JobScheduler(timeProvider);
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
         var firstJob = new RecordingJob();
         var secondJob = new RecordingJob();
         var firstHandle = scheduler.AddJob("*/10 * * * * *", firstJob, "first");
@@ -36,7 +37,7 @@ public sealed class JobSchedulerTests
 
         var removedCount = scheduler.RemoveAllJobs();
         timeProvider.Advance(TimeSpan.FromSeconds(10));
-        await Task.Delay(50).ConfigureAwait(false);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, removedCount);
         Assert.True(firstHandle.IsRemoved);
@@ -45,46 +46,50 @@ public sealed class JobSchedulerTests
         Assert.False(firstJob.HasExecuted);
         Assert.False(secondJob.HasExecuted);
 
-        await scheduler.StopAsync().ConfigureAwait(false);
+        await scheduler.StopAsync();
     }
 
     [Fact]
     public async Task AddJobWhenSchedulerIsRunningThenJobExecutesAtNextScheduledTime()
     {
         var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
-        var scheduler = new JobScheduler(timeProvider);
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
         scheduler.Start();
 
         var job = new RecordingJob();
         var handle = scheduler.AddJob("*/10 * * * * *", job, "dynamic");
         timeProvider.Advance(TimeSpan.FromSeconds(5));
 
-        var nextRun = await job.WaitForExecutionAsync().ConfigureAwait(false);
+        var nextRun = await job.WaitForExecutionAsync();
 
         Assert.Equal("dynamic", handle.Name);
         Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 10, TimeSpan.Zero), nextRun);
 
-        await scheduler.StopAsync().ConfigureAwait(false);
+        await scheduler.StopAsync();
     }
 
     [Fact]
     public async Task RemoveJobWhenJobIsRemovedBeforeDueTimeThenJobDoesNotExecute()
     {
         var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
-        var scheduler = new JobScheduler(timeProvider);
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
         var job = new RecordingJob();
         var handle = scheduler.AddJob("*/10 * * * * *", job, "dynamic");
         scheduler.Start();
 
         var removed = handle.Remove();
         timeProvider.Advance(TimeSpan.FromSeconds(10));
-        await Task.Delay(50).ConfigureAwait(false);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
 
         Assert.True(removed);
         Assert.True(handle.IsRemoved);
         Assert.False(job.HasExecuted);
 
-        await scheduler.StopAsync().ConfigureAwait(false);
+        await scheduler.StopAsync();
     }
 
     private sealed class RecordingJob : ISchedulerJob
@@ -208,4 +213,3 @@ public sealed class JobSchedulerTests
         }
     }
 }
-#pragma warning restore CA1812
