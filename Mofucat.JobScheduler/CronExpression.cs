@@ -73,84 +73,34 @@ public sealed class CronExpression
         Span<Range> ranges = stackalloc Range[6];
         var rangeCount = SplitFields(span, ranges);
 
-        return rangeCount switch
+        if (rangeCount == 5)
         {
-            5 => ParseFiveField(expression, span, ranges),
-            6 => ParseSixField(expression, span, ranges),
-            _ => throw new FormatException($"Cron expression must have 5 or 6 fields. expression=[{expression}]")
-        };
-    }
-
-    private static int SplitFields(ReadOnlySpan<char> expression, Span<Range> ranges)
-    {
-        var count = 0;
-        var index = 0;
-        while (index < expression.Length && count < ranges.Length)
+            return new CronExpression(
+                expression,
+                false,
+                1UL,
+                ParseFieldMask64(span[ranges[0]], 0, 59, "minute"),
+                (uint)ParseFieldMask64(span[ranges[1]], 0, 23, "hour"),
+                (uint)ParseFieldMask64(span[ranges[2]], DayOfMonthMin, DayOfMonthMax, "day-of-month"),
+                (ushort)ParseFieldMask64(span[ranges[3]], MonthMin, MonthMax, "month"),
+                (byte)ParseFieldMask64(span[ranges[4]], 0, 6, "day-of-week"),
+                GetFlags(span[ranges[2]], span[ranges[4]]));
+        }
+        if (rangeCount == 6)
         {
-            while (index < expression.Length && expression[index] == ' ')
-            {
-                index++;
-            }
-
-            if (index >= expression.Length)
-            {
-                break;
-            }
-
-            var start = index;
-            while (index < expression.Length && expression[index] != ' ')
-            {
-                index++;
-            }
-
-            ranges[count++] = start..index;
+            return new CronExpression(
+                expression,
+                true,
+                ParseFieldMask64(span[ranges[0]], 0, 59, "second"),
+                ParseFieldMask64(span[ranges[1]], 0, 59, "minute"),
+                (uint)ParseFieldMask64(span[ranges[2]], 0, 23, "hour"),
+                (uint)ParseFieldMask64(span[ranges[3]], DayOfMonthMin, DayOfMonthMax, "day-of-month"),
+                (ushort)ParseFieldMask64(span[ranges[4]], MonthMin, MonthMax, "month"),
+                (byte)ParseFieldMask64(span[ranges[5]], 0, 6, "day-of-week"),
+                GetFlags(span[ranges[3]], span[ranges[5]]));
         }
 
-        while (index < expression.Length)
-        {
-            if (expression[index] != ' ')
-            {
-                return count + 1;
-            }
-
-            index++;
-        }
-
-        return count;
-    }
-
-    private static CronExpression ParseFiveField(string expression, ReadOnlySpan<char> span, Span<Range> ranges)
-    {
-        return new CronExpression(
-            expression,
-            false,
-            1UL,
-            ParseFieldMask64(span[ranges[0]], 0, 59, "minute"),
-            (uint)ParseFieldMask64(span[ranges[1]], 0, 23, "hour"),
-            (uint)ParseFieldMask64(span[ranges[2]], DayOfMonthMin, DayOfMonthMax, "day-of-month"),
-            (ushort)ParseFieldMask64(span[ranges[3]], MonthMin, MonthMax, "month"),
-            (byte)ParseFieldMask64(span[ranges[4]], 0, 6, "day-of-week"),
-            GetFlags(span[ranges[2]], span[ranges[4]]));
-    }
-
-    private static CronExpression ParseSixField(string expression, ReadOnlySpan<char> span, Span<Range> ranges)
-    {
-        var localSecondsMask = ParseFieldMask64(span[ranges[0]], 0, 59, "second");
-        var localMinutesMask = ParseFieldMask64(span[ranges[1]], 0, 59, "minute");
-        var localHoursMask = (uint)ParseFieldMask64(span[ranges[2]], 0, 23, "hour");
-        var localDaysOfMonthMask = (uint)ParseFieldMask64(span[ranges[3]], DayOfMonthMin, DayOfMonthMax, "day-of-month");
-        var localMonthsMask = (ushort)ParseFieldMask64(span[ranges[4]], MonthMin, MonthMax, "month");
-        var localDaysOfWeekMask = (byte)ParseFieldMask64(span[ranges[5]], 0, 6, "day-of-week");
-        return new CronExpression(
-            expression,
-            true,
-            localSecondsMask,
-            localMinutesMask,
-            localHoursMask,
-            localDaysOfMonthMask,
-            localMonthsMask,
-            localDaysOfWeekMask,
-            GetFlags(span[ranges[3]], span[ranges[5]]));
+        throw new FormatException($"Cron expression must have 5 or 6 fields. expression=[{expression}]");
     }
 
     //--------------------------------------------------------------------------------
@@ -550,25 +500,45 @@ public sealed class CronExpression
     }
 
     //--------------------------------------------------------------------------------
-    // Parse helpers
+    // Helper
     //--------------------------------------------------------------------------------
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static byte GetFlags(ReadOnlySpan<char> dayOfMonthField, ReadOnlySpan<char> dayOfWeekField)
+    private static int SplitFields(ReadOnlySpan<char> expression, Span<Range> ranges)
     {
-        // day-of-month / day-of-week のどちらが制約付きかを後続判定用に保持する。
-        byte localFlags = 0;
-        if (!IsWildcard(dayOfMonthField))
+        var count = 0;
+        var index = 0;
+        while (index < expression.Length && count < ranges.Length)
         {
-            localFlags |= DayOfMonthRestrictedFlag;
+            while (index < expression.Length && expression[index] == ' ')
+            {
+                index++;
+            }
+
+            if (index >= expression.Length)
+            {
+                break;
+            }
+
+            var start = index;
+            while (index < expression.Length && expression[index] != ' ')
+            {
+                index++;
+            }
+
+            ranges[count++] = start..index;
         }
 
-        if (!IsWildcard(dayOfWeekField))
+        while (index < expression.Length)
         {
-            localFlags |= DayOfWeekRestrictedFlag;
+            if (expression[index] != ' ')
+            {
+                return count + 1;
+            }
+
+            index++;
         }
 
-        return localFlags;
+        return count;
     }
 
     private static ulong ParseFieldMask64(ReadOnlySpan<char> field, int min, int max, string name)
@@ -692,7 +662,6 @@ public sealed class CronExpression
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static ulong BuildMask(int start, int end, int step)
     {
-        // 指定範囲を step 間隔で走査し、該当ビットを順に立てる。
         var result = 0UL;
         for (var value = start; value <= end; value += step)
         {
@@ -748,7 +717,23 @@ public sealed class CronExpression
         return true;
     }
 
-    // フィールドがワイルドカード `*` 単体かどうかを判定する。
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static byte GetFlags(ReadOnlySpan<char> dayOfMonthField, ReadOnlySpan<char> dayOfWeekField)
+    {
+        byte localFlags = 0;
+        if (!IsWildcard(dayOfMonthField))
+        {
+            localFlags |= DayOfMonthRestrictedFlag;
+        }
+
+        if (!IsWildcard(dayOfWeekField))
+        {
+            localFlags |= DayOfWeekRestrictedFlag;
+        }
+
+        return localFlags;
+    }
+
     private static bool IsWildcard(ReadOnlySpan<char> value) => value.Length == 1 && value[0] == '*';
 
     //--------------------------------------------------------------------------------
