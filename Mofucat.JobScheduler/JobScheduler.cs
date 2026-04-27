@@ -87,7 +87,7 @@ public sealed class JobScheduler : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(disposed, this);
 
-            if (!isRunning)
+            if (isRunning)
             {
                 return Task.CompletedTask;
             }
@@ -222,11 +222,11 @@ public sealed class JobScheduler : IAsyncDisposable
         }
     }
 
-    public bool ContainsJob(string name)
+    public IJobHandle? FindJob(string name)
     {
         lock (sync)
         {
-            return jobsByName.ContainsKey(name);
+            return jobsByName.GetValueOrDefault(name)?.Handle;
         }
     }
 
@@ -310,7 +310,6 @@ public sealed class JobScheduler : IAsyncDisposable
             {
                 continue;
             }
-
 
             ScheduledJob? firingJob = null;
             var fireTime = nextTime.Value;

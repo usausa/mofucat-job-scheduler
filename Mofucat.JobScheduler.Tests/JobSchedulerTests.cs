@@ -21,7 +21,7 @@ public sealed class JobSchedulerTests
         await scheduler.StartAsync();
         timeProvider.Advance(TimeSpan.FromSeconds(5));
 
-        var nextRun = await job.WaitForExecutionAsync();
+        var nextRun = await job.WaitForExecutionAsync(TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 10, TimeSpan.Zero), nextRun);
@@ -75,7 +75,7 @@ public sealed class JobSchedulerTests
         var handle = scheduler.AddJob("*/10 * * * * *", job, "dynamic");
         timeProvider.Advance(TimeSpan.FromSeconds(5));
 
-        var nextRun = await job.WaitForExecutionAsync();
+        var nextRun = await job.WaitForExecutionAsync(TestContext.Current.CancellationToken);
 
         // Assert
         Assert.Equal("dynamic", handle.Name);
@@ -109,6 +109,37 @@ public sealed class JobSchedulerTests
         await scheduler.StopAsync();
     }
 
+    [Fact]
+    public async Task FindJobWhenJobExistsThenReturnsRegisteredHandle()
+    {
+        // Arrange
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler();
+#pragma warning restore CA2007
+        var registeredHandle = scheduler.AddJob("*/10 * * * * *", new RecordingJob(), "sample");
+
+        // Act
+        var handle = scheduler.FindJob("sample");
+
+        // Assert
+        Assert.Same(registeredHandle, handle);
+    }
+
+    [Fact]
+    public async Task FindJobWhenJobDoesNotExistThenReturnsNull()
+    {
+        // Arrange
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler();
+#pragma warning restore CA2007
+
+        // Act
+        var handle = scheduler.FindJob("missing");
+
+        // Assert
+        Assert.Null(handle);
+    }
+
     //--------------------------------------------------------------------------------
     // Test doubles
     //--------------------------------------------------------------------------------
@@ -125,7 +156,21 @@ public sealed class JobSchedulerTests
             return ValueTask.CompletedTask;
         }
 
-        public Task<DateTimeOffset> WaitForExecutionAsync() => completionSource.Task;
+        public async Task<DateTimeOffset> WaitForExecutionAsync(CancellationToken cancellationToken)
+        {
+            var cancellationTaskSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+#pragma warning disable CA2007
+            await using var registration = cancellationToken.Register(static state => ((TaskCompletionSource<bool>)state!).TrySetCanceled(), cancellationTaskSource);
+#pragma warning restore CA2007
+
+            var completedTask = await Task.WhenAny(completionSource.Task, cancellationTaskSource.Task).ConfigureAwait(false);
+            if (completedTask != completionSource.Task)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+
+            return await completionSource.Task.ConfigureAwait(false);
+        }
     }
 
     //--------------------------------------------------------------------------------
