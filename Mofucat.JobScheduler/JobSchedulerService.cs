@@ -357,7 +357,7 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
         if (delay == Timeout.InfiniteTimeSpan)
         {
             var cancellationTaskSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            using (cancellationToken.Register(static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true), cancellationTaskSource))
+            await using (cancellationToken.Register(static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true), cancellationTaskSource))
             {
                 await Task.WhenAny(wakeupTask, cancellationTaskSource.Task).ConfigureAwait(false);
             }
@@ -367,12 +367,12 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
         }
 
         var delayTaskSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var timer = timeProvider.CreateTimer(
+        await using var timer = timeProvider.CreateTimer(
             static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true),
             delayTaskSource,
             delay,
             Timeout.InfiniteTimeSpan);
-        using var cancellationRegistration = cancellationToken.Register(
+        await using var cancellationRegistration = cancellationToken.Register(
             static state => ((TaskCompletionSource<bool>)state!).TrySetCanceled(),
             delayTaskSource);
 
