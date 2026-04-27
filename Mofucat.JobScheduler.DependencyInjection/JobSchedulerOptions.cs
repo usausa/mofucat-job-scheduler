@@ -3,29 +3,21 @@ namespace Mofucat.JobScheduler.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
-/// <summary>
-/// DI 統合時のスケジュール済みジョブ登録オプションを提供します。
-/// </summary>
 public sealed class JobSchedulerOptions
 {
-    // ジョブ型の DI 登録先。
     private readonly IServiceCollection services;
-    // AddJobScheduler で収集したジョブ登録先。
-    private readonly SchedulerRegistrations registrations;
 
-    /// <summary>
-    /// <see cref="JobSchedulerOptions"/> クラスの新しいインスタンスを初期化します。
-    /// </summary>
-    /// <param name="services">登録先のサービス コレクションです。</param>
-    /// <param name="registrations">ジョブ登録情報の格納先です。</param>
-    public JobSchedulerOptions(IServiceCollection services, SchedulerRegistrations registrations)
+    private readonly SchedulerRegistry registry;
+
+    // TODO internal ?
+    public JobSchedulerOptions(IServiceCollection services, SchedulerRegistry registry)
     {
         ArgumentNullException.ThrowIfNull(services);
-        ArgumentNullException.ThrowIfNull(registrations);
+        ArgumentNullException.ThrowIfNull(registry);
 
         // ジョブ型を必要に応じて DI へ追加登録するため保持する。
         this.services = services;
-        this.registrations = registrations;
+        this.registry = registry;
     }
 
     /// <summary>
@@ -40,7 +32,7 @@ public sealed class JobSchedulerOptions
         ValidateCronExpression(expression);
         services.TryAddScoped<T>();
         // 実行時にスコープを作成し、そのスコープからジョブを解決する。
-        registrations.Jobs.Add(new JobRegistration(expression, name, static serviceProvider => new ScopedJobAdapter(serviceProvider, typeof(T))));
+        registry.Jobs.Add(new JobRegistration(name, expression, static serviceProvider => new ScopedJobAdapter(serviceProvider, typeof(T))));
     }
 
     /// <summary>
@@ -62,7 +54,7 @@ public sealed class JobSchedulerOptions
 
         // 実装型自身をスコープ解決できるよう DI へ登録する。
         services.TryAdd(ServiceDescriptor.Scoped(jobType, jobType));
-        registrations.Jobs.Add(new JobRegistration(expression, name, serviceProvider => new ScopedJobAdapter(serviceProvider, jobType)));
+        registry.Jobs.Add(new JobRegistration(name, expression, serviceProvider => new ScopedJobAdapter(serviceProvider, jobType)));
     }
 
     /// <summary>
@@ -77,7 +69,7 @@ public sealed class JobSchedulerOptions
         ArgumentNullException.ThrowIfNull(job);
 
         // 既存インスタンスは毎回同じ参照を返すファクトリとして保持する。
-        registrations.Jobs.Add(new JobRegistration(expression, name, _ => job));
+        registry.Jobs.Add(new JobRegistration(name, expression, _ => job));
     }
 
     /// <summary>
@@ -92,7 +84,7 @@ public sealed class JobSchedulerOptions
         ArgumentNullException.ThrowIfNull(factory);
 
         // ジョブ生成責務を完全に呼び出し側へ委ねる拡張ポイント。
-        registrations.Jobs.Add(new JobRegistration(expression, name, factory));
+        registry.Jobs.Add(new JobRegistration(name, expression, factory));
     }
 
     private static void ValidateCronExpression(string expression)

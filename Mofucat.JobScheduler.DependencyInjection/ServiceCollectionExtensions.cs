@@ -93,17 +93,18 @@ public static class ServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, SchedulerHostedService>());
     }
 
-    private static SchedulerRegistrations GetOrCreateRegistrations(IServiceCollection services)
+    private static SchedulerRegistry GetOrCreateRegistrations(IServiceCollection services)
     {
+        // TODO OfTypeとか？
         // 複数回呼び出されても単一の登録情報インスタンスを再利用する。
         if (services
-                .FirstOrDefault(static descriptor => descriptor.ServiceType == typeof(SchedulerRegistrations))
-                ?.ImplementationInstance is SchedulerRegistrations registration)
+                .FirstOrDefault(static descriptor => descriptor.ServiceType == typeof(SchedulerRegistry))
+                ?.ImplementationInstance is SchedulerRegistry registry)
         {
-            return registration;
+            return registry;
         }
 
-        var created = new SchedulerRegistrations();
+        var created = new SchedulerRegistry();
         // 登録情報はインスタンス保持だけでよいため、そのまま singleton 登録する。
         services.AddSingleton(created);
         return created;

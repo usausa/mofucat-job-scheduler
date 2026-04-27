@@ -8,7 +8,7 @@ public sealed class JobSchedulerOptionsTest
     public void UseJobWhenExpressionIsWhitespaceThenThrowsArgumentException()
     {
         var services = new ServiceCollection();
-        var options = new JobSchedulerOptions(services, new SchedulerRegistrations());
+        var options = new JobSchedulerOptions(services, new SchedulerRegistry());
 
         Assert.Throws<ArgumentException>(() => options.UseJob<NopJob>(" "));
     }

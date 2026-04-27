@@ -11,7 +11,7 @@ public sealed class SchedulerHostedService : IHostedService
     // ホスト ライフサイクルに連動して起動・停止するスケジューラ本体。
     private readonly JobScheduler scheduler;
     // 起動時にスケジューラへ流し込むジョブ登録一覧。
-    private readonly SchedulerRegistrations registrations;
+    private readonly SchedulerRegistry registry;
     // ジョブ解決やロガー取得に使うルート サービス プロバイダー。
     private readonly IServiceProvider rootProvider;
     // スケジューラ関連のログ出力先。
@@ -19,14 +19,14 @@ public sealed class SchedulerHostedService : IHostedService
     // 購読解除のため保持するエラー通知ハンドラー。
     private EventHandler<JobErrorEventArgs>? errorHandler;
 
-    public SchedulerHostedService(JobScheduler scheduler, SchedulerRegistrations registrations, IServiceProvider rootProvider)
+    public SchedulerHostedService(JobScheduler scheduler, SchedulerRegistry registry, IServiceProvider rootProvider)
     {
         ArgumentNullException.ThrowIfNull(scheduler);
-        ArgumentNullException.ThrowIfNull(registrations);
+        ArgumentNullException.ThrowIfNull(registry);
         ArgumentNullException.ThrowIfNull(rootProvider);
 
         this.scheduler = scheduler;
-        this.registrations = registrations;
+        this.registry = registry;
         this.rootProvider = rootProvider;
         // ロガー未登録でも安全に動作するよう NullLogger へフォールバックする。
         logger = rootProvider.GetService<ILogger<JobScheduler>>() ?? NullLogger<JobScheduler>.Instance;
@@ -35,7 +35,7 @@ public sealed class SchedulerHostedService : IHostedService
     public Task StartAsync(CancellationToken cancellationToken)
     {
         // ホスト開始時に、事前登録されたジョブをスケジューラへ流し込む。
-        foreach (var registration in registrations.Jobs)
+        foreach (var registration in registry.Jobs)
         {
             // ジョブ実体は各登録のファクトリに任せ、ここではスケジュールのみ適用する。
             scheduler.AddJob(registration.CronExpression, registration.Factory(rootProvider), registration.Name);
@@ -46,7 +46,7 @@ public sealed class SchedulerHostedService : IHostedService
         scheduler.JobError += errorHandler;
         scheduler.Start();
         // 起動ログには登録済み件数を残し、構成確認を容易にする。
-        logger.LogInformation("Scheduler started with {JobCount} registered job(s).", registrations.Jobs.Count);
+        logger.LogInformation("Scheduler started with {JobCount} registered job(s).", registry.Jobs.Count);
         return Task.CompletedTask;
     }
 

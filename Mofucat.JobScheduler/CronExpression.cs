@@ -11,20 +11,20 @@ public sealed class CronExpression
     private const int DayOfMonthMin = 1;
     private const int DayOfMonthMax = 31;
 
-    // day-of-month がワイルドカード以外で制約されていることを示すフラグ。
-    private const byte DayOfMonthRestrictedFlag = 0x1;
-    // day-of-week がワイルドカード以外で制約されていることを示すフラグ。
-    private const byte DayOfWeekRestrictedFlag = 0x2;
+    // day-of-month is restricted by a non-wildcard value
+    private const byte DayOfMonthRestricted = 0x1;
+    // day-of-week is restricted by a non-wildcard value
+    private const byte DayOfWeekRestricted = 0x2;
 
-    // 月ごとの日数テーブル。0 番目は未使用。
+    // Days per month table
     private static ReadOnlySpan<byte> DaysInMonthTable => [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    // ツェラー系計算で曜日算出に用いる補助テーブル。
+    // Helper table used by the day-of-week calculation
     private static ReadOnlySpan<byte> DayOfWeekTable => [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
 
-    // 秒付き形式
+    // Includes seconds
     private readonly bool includesSeconds;
 
-    // 一致候補ビットマスク
+    // Bitmasks for matching candidates
     private readonly ulong secondsMask;
     private readonly ulong minutesMask;
     private readonly uint hoursMask;
@@ -32,7 +32,7 @@ public sealed class CronExpression
     private readonly ushort monthsMask;
     private readonly byte daysOfWeekMask;
 
-    // 制約フラグ
+    // Flags
     private readonly byte flags;
 
     public string Expression { get; }
@@ -141,7 +141,7 @@ public sealed class CronExpression
         var maxYear = year + 5;
         while (year < maxYear)
         {
-            // 次の一致月まで日付と時刻を初期化して進める
+            // Reset the lower components and advance to the next matching month
             if ((monthsMask & (1 << month)) == 0)
             {
                 if (!AdvanceToNextMonth(ref year, ref month, maxYear))
@@ -159,7 +159,7 @@ public sealed class CronExpression
             var maxDay = DaysInMonth(year, month);
             if (day > maxDay)
             {
-                // 月末を超えた場合は翌月の先頭へ進める
+                // If the current day exceeds the end of the month, move to the first day of the next month
                 month++;
                 if (month > MonthMax)
                 {
@@ -176,7 +176,7 @@ public sealed class CronExpression
 
             if (!IsDayMatch(year, month, day))
             {
-                // 日条件が一致しない場合は次の日を試す
+                // If the day does not match, try the next day
                 day++;
                 hour = 0;
                 minute = 0;
@@ -199,7 +199,7 @@ public sealed class CronExpression
             var nextHour = FindNextBit(hoursMask, hour, 23);
             if (nextHour < 0)
             {
-                // 当日に一致する時が無い場合は翌日に進める
+                // If no matching hour exists on this day, advance to the next day
                 day++;
                 hour = 0;
                 minute = 0;
@@ -221,7 +221,7 @@ public sealed class CronExpression
 
             if (nextHour != hour)
             {
-                // 時が進んだ場合は下位要素を最小値へ戻して再探索
+                // When the hour changes, reset lower-order components and search again
                 hour = nextHour;
                 minute = 0;
                 second = 0;
@@ -230,7 +230,7 @@ public sealed class CronExpression
             var nextMinute = FindNextBit(minutesMask, minute, 59);
             if (nextMinute < 0)
             {
-                // 当該時刻内で一致する分が無ければ次の時へ進める
+                // If no matching minute exists within the current hour, advance to the next hour
                 hour++;
                 minute = 0;
                 second = 0;
@@ -258,7 +258,7 @@ public sealed class CronExpression
 
             if ((year == from.Year) && (month == from.Month) && (day == from.Day) && (hour == from.Hour) && (minute == from.Minute) && (second == from.Second))
             {
-                // 基準時刻ちょうどは次回ではないため、翌候補へ進める
+                // The exact base time is not considered the next occurrence, so advance to the next candidate
                 day++;
                 hour = 0;
                 minute = 0;
@@ -309,7 +309,7 @@ public sealed class CronExpression
         {
             if ((monthsMask & (1 << month)) == 0)
             {
-                // 条件に一致する月までスキップ
+                // Skip forward until a matching month is found
                 if (!AdvanceToNextMonth(ref year, ref month, maxYear))
                 {
                     break;
@@ -341,7 +341,7 @@ public sealed class CronExpression
 
             if (!IsDayMatch(year, month, day))
             {
-                // 日条件は day-of-month と day-of-week の組み合わせ規則に従って判定
+                // Evaluate the day according to the combined day-of-month and day-of-week rules
                 day++;
                 hour = 0;
                 minute = 0;
@@ -385,7 +385,7 @@ public sealed class CronExpression
 
             if (nextHour != hour)
             {
-                // 時が変わったら分・秒は最初の候補からやり直す
+                // When the hour changes, restart minute and second selection from the first candidate
                 hour = nextHour;
                 minute = 0;
                 second = 0;
@@ -422,7 +422,7 @@ public sealed class CronExpression
             var nextSecond = FindNextBit(secondsMask, second, 59);
             if (nextSecond < 0)
             {
-                // 秒が見つからない場合は次の分へ繰り上げる
+                // If no matching second exists, carry over to the next minute
                 var resetSecond = FindNextBit(secondsMask, 0, 59);
                 if (resetSecond < 0)
                 {
@@ -460,7 +460,7 @@ public sealed class CronExpression
 
             if ((year == from.Year) && (month == from.Month) && (day == from.Day) && (hour == from.Hour) && (minute == from.Minute) && (second == from.Second))
             {
-                // 現在時刻そのものは返さず、以後の候補を探す
+                // Do not return the current instant itself; continue searching for a later candidate
                 day++;
                 hour = 0;
                 minute = 0;
@@ -596,7 +596,7 @@ public sealed class CronExpression
                 }
                 else
                 {
-                    // Single or a/n
+                    // Single value or a/n
                     if (!TryParseUInt32(rangePart, out var parsedValue))
                     {
                         throw new FormatException($"Invalid value in field. name=[{name}], term=[{term}]");
@@ -689,12 +689,12 @@ public sealed class CronExpression
         var flags = (byte)0;
         if (!IsWildcard(dayOfMonthField))
         {
-            flags |= DayOfMonthRestrictedFlag;
+            flags |= DayOfMonthRestricted;
         }
 
         if (!IsWildcard(dayOfWeekField))
         {
-            flags |= DayOfWeekRestrictedFlag;
+            flags |= DayOfWeekRestricted;
         }
 
         return flags;
@@ -709,7 +709,7 @@ public sealed class CronExpression
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int DaysInMonth(int year, int month)
     {
-        // 通常月はテーブル参照、2月はうるう年補正
+        // Use the lookup table for regular months and apply leap-year correction for February
         var days = Unsafe.Add(ref MemoryMarshal.GetReference(DaysInMonthTable), month);
         if ((month == 2) && IsLeapYear(year))
         {
@@ -726,31 +726,31 @@ public sealed class CronExpression
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool IsDayMatch(int year, int month, int day)
     {
-        // 日付条件なしならすべての日を一致
+        // If there are no day restrictions, every day matches
         var localFlags = flags;
-        if ((localFlags & (DayOfMonthRestrictedFlag | DayOfWeekRestrictedFlag)) == 0)
+        if ((localFlags & (DayOfMonthRestricted | DayOfWeekRestricted)) == 0)
         {
             return true;
         }
 
-        // 月内の日付一致と曜日一致をそれぞれ独立に評価
+        // Evaluate day-of-month and day-of-week matches independently
         var dayOfMonthMatch = (daysOfMonthMask & (1U << day)) != 0;
         var dayOfWeekMatch = (daysOfWeekMask & (1 << CalcDayOfWeek(year, month, day))) != 0;
 
-        if ((localFlags & (DayOfMonthRestrictedFlag | DayOfWeekRestrictedFlag)) == (DayOfMonthRestrictedFlag | DayOfWeekRestrictedFlag))
+        if ((localFlags & (DayOfMonthRestricted | DayOfWeekRestricted)) == (DayOfMonthRestricted | DayOfWeekRestricted))
         {
-            // 両方に制約がある場合は cron の仕様に従って OR 条件で判定する
+            // When both are restricted, cron semantics treat them as an OR condition
             return dayOfMonthMatch || dayOfWeekMatch;
         }
 
-        // 片方だけ制約がある場合は、その条件のみで判定する
-        return (localFlags & DayOfMonthRestrictedFlag) != 0 ? dayOfMonthMatch : dayOfWeekMatch;
+        // When only one side is restricted, only that condition is used
+        return (localFlags & DayOfMonthRestricted) != 0 ? dayOfMonthMatch : dayOfWeekMatch;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int CalcDayOfWeek(int year, int month, int day)
     {
-        // 1 月と 2 月を前年の 13,14 月相当として扱う簡易曜日計算
+        // Simple day-of-week calculation that treats January and February as months 13 and 14 of the previous year
         if (month < 3)
         {
             year--;
@@ -763,7 +763,7 @@ public sealed class CronExpression
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool AdvanceToNextMonth(ref int year, ref int month, int maxYear)
     {
-        // 同一年内で次に一致する月を優先して探す
+        // Prefer the next matching month within the same year
         var nextMonth = FindNextBit(monthsMask, month + 1, MonthMax);
         if (nextMonth >= 0)
         {
@@ -771,7 +771,7 @@ public sealed class CronExpression
             return true;
         }
 
-        // 同年に候補が無ければ翌年へ進み、最初の一致月を探す
+        // If no candidate exists in the current year, move to the next year and find the first matching month
         year++;
         if (year >= maxYear)
         {
@@ -791,7 +791,7 @@ public sealed class CronExpression
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void AdjustDay(ref int year, ref int month, ref int day)
     {
-        // day を 1 日進めた後、月末超過なら年月を繰り上げ
+        // After incrementing the day, carry into month and year if the end of the month is exceeded
         var maxDay = DaysInMonth(year, month);
         if (day > maxDay)
         {
