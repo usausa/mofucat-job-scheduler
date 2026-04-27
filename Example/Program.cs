@@ -5,9 +5,9 @@ using Mofucat.JobScheduler.DependencyInjection;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.Services.AddJobScheduler(static options =>
+builder.Services.AddJobSchedulerService(static options =>
 {
-    options.UseJob<SampleJob>("*/1 * * * *", name: "sample");
+    options.UseScopedJob<SampleJob>("*/1 * * * *", name: "sample");
 });
 
 builder.Services.AddSingleton<FeatureService>();

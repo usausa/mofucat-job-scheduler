@@ -173,7 +173,7 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
             var actualName = name ?? Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
             if (jobs.ContainsKey(actualName))
             {
-                throw new ArgumentException($"A job named '{actualName}' already exists.", nameof(name));
+                throw new ArgumentException($"A job with the same name already exists. name=[{actualName}]", nameof(name));
             }
 
             var handle = new JobHandle(this, actualName, cronExpression);

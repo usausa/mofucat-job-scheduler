@@ -1,6 +1,6 @@
 namespace Mofucat.JobScheduler.Tests;
 
-public sealed class JobSchedulerTest
+public sealed class JobSchedulerTests
 {
     [Fact]
     public async Task StartWhenJobRunsThenUsesTimeProviderForExecutionTime()

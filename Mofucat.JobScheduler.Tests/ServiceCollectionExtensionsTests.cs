@@ -2,16 +2,16 @@ namespace Mofucat.JobScheduler.Tests;
 
 using Mofucat.JobScheduler.Tests.Jobs;
 
-public sealed class ServiceCollectionExtensionsTest
+public sealed class ServiceCollectionExtensionsTests
 {
     [Fact]
-    public void AddJobSchedulerWhenCalledThenRegistersHostedService()
+    public void AddJobSchedulerServiceWhenCalledThenRegistersHostedService()
     {
         var services = new ServiceCollection();
 
-        services.AddJobScheduler(static options =>
+        services.AddJobSchedulerService(static options =>
         {
-            options.UseJob<NopJob>("*/1 * * * *");
+            options.UseScopedJob<NopJob>("*/1 * * * *");
         });
 
         var provider = services.BuildServiceProvider();
@@ -21,11 +21,11 @@ public sealed class ServiceCollectionExtensionsTest
     }
 
     [Fact]
-    public void AddJobSchedulerCoreWhenCalledThenDoesNotRegisterHostedService()
+    public void AddJobSchedulerWhenCalledThenDoesNotRegisterHostedService()
     {
         var services = new ServiceCollection();
 
-        services.AddJobSchedulerCore();
+        services.AddJobScheduler();
 
         var provider = services.BuildServiceProvider();
         var hostedServices = provider.GetServices<IHostedService>();
