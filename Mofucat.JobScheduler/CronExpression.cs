@@ -266,12 +266,12 @@ public sealed class CronExpression
 
             minute = nextMinute;
 
-            if (year == from.Year
-                && month == from.Month
-                && day == from.Day
-                && hour == from.Hour
-                && minute == from.Minute
-                && second == from.Second)
+            if ((year == from.Year)
+                && (month == from.Month)
+                && (day == from.Day)
+                && (hour == from.Hour)
+                && (minute == from.Minute)
+                && (second == from.Second))
             {
                 // 基準時刻ちょうどは「次回」ではないため、翌候補へ進める。
                 day++;
@@ -476,12 +476,12 @@ public sealed class CronExpression
 
             second = nextSecond;
 
-            if (year == from.Year
-                && month == from.Month
-                && day == from.Day
-                && hour == from.Hour
-                && minute == from.Minute
-                && second == from.Second)
+            if ((year == from.Year)
+                && (month == from.Month)
+                && (day == from.Day)
+                && (hour == from.Hour)
+                && (minute == from.Minute)
+                && (second == from.Second))
             {
                 // 現在時刻そのものは返さず、以後の候補を探す。
                 day++;
@@ -507,9 +507,9 @@ public sealed class CronExpression
     {
         var count = 0;
         var index = 0;
-        while (index < expression.Length && count < ranges.Length)
+        while ((index < expression.Length) && (count < ranges.Length))
         {
-            while (index < expression.Length && expression[index] == ' ')
+            while ((index < expression.Length) && (expression[index] == ' '))
             {
                 index++;
             }
@@ -520,7 +520,7 @@ public sealed class CronExpression
             }
 
             var start = index;
-            while (index < expression.Length && expression[index] != ' ')
+            while ((index < expression.Length) && (expression[index] != ' '))
             {
                 index++;
             }
@@ -543,47 +543,42 @@ public sealed class CronExpression
 
     private static ulong ParseFieldMask64(ReadOnlySpan<char> field, int min, int max, string name)
     {
-        if (field.Length == 1 && field[0] == '*')
+        // *
+        if ((field.Length == 1) && (field[0] == '*'))
         {
-            // `*` は許容範囲全体をそのまま有効化する。
             return BuildMask(min, max, 1);
         }
 
-        if (field.Length > 2
-            && field[0] == '*'
-            && field[1] == '/'
-            && field.IndexOf(',') < 0
-            && field.IndexOf('-') < 0)
+        // */n
+        if ((field.Length > 2) && (field[0] == '*') && (field[1] == '/') && (field.IndexOf(',') < 0) && (field.IndexOf('-') < 0))
         {
-            // `*/n` の最適化パス。単純な刻み指定は直接マスク化する。
             return BuildMask(min, max, ParsePositiveInt32(field[2..], name, field));
         }
 
-        if (field.IndexOf(',') < 0 && field.IndexOf('-') < 0 && field.IndexOf('/') < 0)
+        if ((field.IndexOf(',') < 0) && (field.IndexOf('-') < 0) && (field.IndexOf('/') < 0))
         {
-            // 最も単純な単一値指定は、個別パースして 1 ビットだけ立てる。
             if (!TryParseUInt32(field, out var parsedValue))
             {
-                throw new FormatException($"Invalid value in {name} field: '{field}'.");
+                throw new FormatException($"Invalid value in field. name=[{name}], field=[{field}]");
             }
 
             var value = (int)parsedValue;
-            if (value < min || value > max)
+            if ((value < min) || (value > max))
             {
-                throw new FormatException($"Value out of range [{min},{max}] in {name} field: '{field}'.");
+                throw new FormatException($"Value out of range in field. min=[{min}], max=[{max}], name=[{name}], field=[{field}]");
             }
 
             return 1UL << value;
         }
 
         var result = 0UL;
-        var tokenStart = 0;
 
-        // 複合指定ではカンマ区切りの各トークンを順番にマスクへ折り畳む。
+        // Mixed
+        var tokenStart = 0;
         while (tokenStart <= field.Length)
         {
             var tokenEnd = tokenStart;
-            while (tokenEnd < field.Length && field[tokenEnd] != ',')
+            while ((tokenEnd < field.Length) && (field[tokenEnd] != ','))
             {
                 tokenEnd++;
             }
@@ -591,8 +586,7 @@ public sealed class CronExpression
             var term = field[tokenStart..tokenEnd];
             if (term.IsEmpty)
             {
-                // `1,,2` のような空トークンは不正として扱う。
-                throw new FormatException($"Invalid {name} field: '{field}'.");
+                throw new FormatException($"Invalid field. name=[{name}], field=[{field}]");
             }
 
             var slashIndex = term.IndexOf('/');
@@ -604,7 +598,7 @@ public sealed class CronExpression
 
             if (IsWildcard(rangePart))
             {
-                // `*/n` や `*` のような全域指定。
+                // */n, *
                 start = min;
                 end = max;
             }
@@ -613,11 +607,11 @@ public sealed class CronExpression
                 var dashIndex = rangePart.IndexOf('-');
                 if (dashIndex > 0)
                 {
-                    // `a-b` 形式の範囲指定。
-                    if (!TryParseUInt32(rangePart[..dashIndex], out var parsedStart)
-                        || !TryParseUInt32(rangePart[(dashIndex + 1)..], out var parsedEnd))
+                    // a-b
+                    if (!TryParseUInt32(rangePart[..dashIndex], out var parsedStart) ||
+                        !TryParseUInt32(rangePart[(dashIndex + 1)..], out var parsedEnd))
                     {
-                        throw new FormatException($"Invalid range in {name} field: '{term}'.");
+                        throw new FormatException($"Invalid range in field. name=[{name}], term=[{term}]");
                     }
 
                     start = (int)parsedStart;
@@ -625,7 +619,7 @@ public sealed class CronExpression
                 }
                 else
                 {
-                    // 単一値または `a/n` 形式。`a/n` は a から最大値まで刻む。
+                    // Single or a/n
                     if (!TryParseUInt32(rangePart, out var parsedValue))
                     {
                         throw new FormatException($"Invalid value in {name} field: '{term}'.");
@@ -636,15 +630,13 @@ public sealed class CronExpression
                 }
             }
 
-            if (start < min || end > max || start > end)
+            if ((start < min) || (end > max) || (start > end))
             {
-                // 正規化後に範囲外となる指定はここで一括して拒否する。
-                throw new FormatException($"Value out of range [{min},{max}] in {name} field: '{term}'.");
+                throw new FormatException($"Value out of range in field. min=[{min}], max=[{max}], name=[{name}], term=[{term}]");
             }
 
             for (var value = start; value <= end; value += step)
             {
-                // 範囲と刻みに従って対象ビットを立てる。
                 result |= 1UL << value;
             }
 
@@ -674,9 +666,9 @@ public sealed class CronExpression
     private static int ParsePositiveInt32(ReadOnlySpan<char> value, string name, ReadOnlySpan<char> term)
     {
         // step は 1 以上の整数のみ許容する。
-        if (!TryParseUInt32(value, out var parsedValue) || parsedValue == 0 || parsedValue > int.MaxValue)
+        if ((!TryParseUInt32(value, out var parsedValue)) || (parsedValue == 0) || (parsedValue > int.MaxValue))
         {
-            throw new FormatException($"Invalid step in {name} field: '{term}'.");
+            throw new FormatException($"Invalid step in field. name=[{name}], term=[{term}]");
         }
 
         return (int)parsedValue;
@@ -734,7 +726,7 @@ public sealed class CronExpression
         return localFlags;
     }
 
-    private static bool IsWildcard(ReadOnlySpan<char> value) => value.Length == 1 && value[0] == '*';
+    private static bool IsWildcard(ReadOnlySpan<char> value) => (value.Length == 1) && (value[0] == '*');
 
     //--------------------------------------------------------------------------------
     // Date helpers
@@ -745,7 +737,7 @@ public sealed class CronExpression
     {
         // 通常月はテーブル参照、2 月だけうるう年補正を加える。
         var days = Unsafe.Add(ref MemoryMarshal.GetReference(DaysInMonthTable), month);
-        if (month == 2 && IsLeapYear(year))
+        if ((month == 2) && IsLeapYear(year))
         {
             days = 29;
         }
@@ -756,7 +748,7 @@ public sealed class CronExpression
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool IsLeapYear(int year)
         // DateTime.IsLeapYear より軽量なビット演算ベースのうるう年判定。
-        => (year & 3) == 0 && ((year % 25) != 0 || (year & 15) == 0);
+        => ((year & 3) == 0) && (((year % 25) != 0) || ((year & 15) == 0));
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool IsDayMatch(int year, int month, int day)

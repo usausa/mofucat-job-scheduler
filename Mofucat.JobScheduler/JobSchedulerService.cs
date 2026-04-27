@@ -305,7 +305,7 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
                         continue;
                     }
 
-                    if (nextTime is null || job.Next < nextTime)
+                    if ((nextTime is null) || (job.Next < nextTime))
                     {
                         nextTime = job.Next;
                         nextJob = job;
@@ -364,7 +364,7 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
             {
                 if (jobs.TryGetValue(nextJob.Name, out var current)
                     && ReferenceEquals(current, nextJob)
-                    && current.Next == nextTime)
+                    && (current.Next == nextTime))
                 {
                     // 実行前に次回時刻を先に更新し、連続実行でも取りこぼしを防ぐ。
                     firingJob = current;

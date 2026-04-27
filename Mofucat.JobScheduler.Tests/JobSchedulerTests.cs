@@ -149,7 +149,7 @@ public sealed class JobSchedulerTest
                 current += amount;
                 foreach (var registration in timers.Values)
                 {
-                    if (registration.IsDisposed || registration.NextTick > current)
+                    if (registration.IsDisposed || (registration.NextTick > current))
                     {
                         continue;
                     }
