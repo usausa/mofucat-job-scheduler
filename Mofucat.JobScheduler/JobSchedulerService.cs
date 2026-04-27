@@ -5,7 +5,7 @@ using System.Globalization;
 /// <summary>
 /// Schedules and executes registered jobs.
 /// </summary>
-public sealed class JobScheduler(TimeProvider? timeProvider = null) : IDisposable, IAsyncDisposable
+public sealed class JobScheduler : IDisposable, IAsyncDisposable
 {
     private static readonly TimeSpan MaxSingleWait = TimeSpan.FromHours(1);
 
@@ -16,7 +16,16 @@ public sealed class JobScheduler(TimeProvider? timeProvider = null) : IDisposabl
     private Task? loopTask;
     private bool isRunning;
     private bool disposed;
-    private readonly TimeProvider timeProvider = timeProvider ?? TimeProvider.System;
+    private readonly TimeProvider timeProvider;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JobScheduler"/> class.
+    /// </summary>
+    /// <param name="timeProvider">The time provider used to evaluate schedules.</param>
+    public JobScheduler(TimeProvider? timeProvider = null)
+    {
+        this.timeProvider = timeProvider ?? TimeProvider.System;
+    }
 
     /// <summary>
     /// Occurs when a job execution fails.

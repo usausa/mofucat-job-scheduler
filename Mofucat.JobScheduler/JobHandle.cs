@@ -1,12 +1,24 @@
 namespace Mofucat.JobScheduler;
 
-internal sealed class JobHandle(JobScheduler scheduler, string name, string cronExpression) : IJobHandle
+internal sealed class JobHandle : IJobHandle
 {
+    private readonly JobScheduler scheduler;
     private volatile bool removed;
 
-    public string Name { get; } = name;
+    public JobHandle(JobScheduler scheduler, string name, string cronExpression)
+    {
+        ArgumentNullException.ThrowIfNull(scheduler);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cronExpression);
 
-    public string CronExpression { get; } = cronExpression;
+        this.scheduler = scheduler;
+        Name = name;
+        CronExpression = cronExpression;
+    }
+
+    public string Name { get; }
+
+    public string CronExpression { get; }
 
     public bool IsRemoved => removed;
 

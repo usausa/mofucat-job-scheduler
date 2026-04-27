@@ -2,8 +2,20 @@ namespace Mofucat.JobScheduler;
 
 using Microsoft.Extensions.DependencyInjection;
 
-internal sealed class ScopedJobAdapter(IServiceProvider rootProvider, Type jobType) : ISchedulerJob
+internal sealed class ScopedJobAdapter : ISchedulerJob
 {
+    private readonly IServiceProvider rootProvider;
+    private readonly Type jobType;
+
+    public ScopedJobAdapter(IServiceProvider rootProvider, Type jobType)
+    {
+        ArgumentNullException.ThrowIfNull(rootProvider);
+        ArgumentNullException.ThrowIfNull(jobType);
+
+        this.rootProvider = rootProvider;
+        this.jobType = jobType;
+    }
+
     public async ValueTask ExecuteAsync(DateTimeOffset time, CancellationToken cancellationToken)
     {
 #pragma warning disable CA2007

@@ -6,12 +6,28 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 /// <summary>
 /// Provides configuration for scheduled jobs.
 /// </summary>
-public sealed class JobSchedulerOptions(IServiceCollection services, SchedulerRegistrations registrations)
+public sealed class JobSchedulerOptions
 {
+    private readonly SchedulerRegistrations registrations;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="JobSchedulerOptions"/> class.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="registrations">The scheduler registrations.</param>
+    public JobSchedulerOptions(IServiceCollection services, SchedulerRegistrations registrations)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(registrations);
+
+        Services = services;
+        this.registrations = registrations;
+    }
+
     /// <summary>
     /// Gets the configured service collection.
     /// </summary>
-    public IServiceCollection Services { get; } = services;
+    public IServiceCollection Services { get; }
 
     /// <summary>
     /// Registers a scheduled job using a scoped implementation.

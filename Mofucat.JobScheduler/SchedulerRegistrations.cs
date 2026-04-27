@@ -1,12 +1,22 @@
 namespace Mofucat.JobScheduler;
 
-public sealed class JobRegistration(string cronExpression, string? name, Func<IServiceProvider, ISchedulerJob> factory)
+public sealed class JobRegistration
 {
-    public string CronExpression { get; } = cronExpression;
+    public JobRegistration(string cronExpression, string? name, Func<IServiceProvider, ISchedulerJob> factory)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(cronExpression);
+        ArgumentNullException.ThrowIfNull(factory);
 
-    public string? Name { get; } = name;
+        CronExpression = cronExpression;
+        Name = name;
+        Factory = factory;
+    }
 
-    public Func<IServiceProvider, ISchedulerJob> Factory { get; } = factory;
+    public string CronExpression { get; }
+
+    public string? Name { get; }
+
+    public Func<IServiceProvider, ISchedulerJob> Factory { get; }
 }
 
 public sealed class SchedulerRegistrations

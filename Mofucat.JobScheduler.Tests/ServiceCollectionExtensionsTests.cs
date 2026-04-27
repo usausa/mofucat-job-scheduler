@@ -1,6 +1,6 @@
 namespace Mofucat.JobScheduler.Tests;
 
-using Mofucat.JobScheduler.Tests.TestJobs;
+using Mofucat.JobScheduler.Tests.Jobs;
 
 public sealed class ServiceCollectionExtensionsTests
 {
@@ -11,7 +11,7 @@ public sealed class ServiceCollectionExtensionsTests
 
         services.AddJobScheduler(static options =>
         {
-            options.UseJob<TestJob>("*/1 * * * *");
+            options.UseJob<NopJob>("*/1 * * * *");
         });
 
         var provider = services.BuildServiceProvider();
@@ -19,5 +19,4 @@ public sealed class ServiceCollectionExtensionsTests
 
         Assert.Contains(hostedServices, static service => service is SchedulerHostedService);
     }
-
 }

@@ -6,10 +6,25 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
 #pragma warning disable CA1848
-public sealed class SchedulerHostedService(JobScheduler scheduler, SchedulerRegistrations registrations, IServiceProvider rootProvider) : IHostedService
+public sealed class SchedulerHostedService : IHostedService
 {
-    private readonly ILogger<JobScheduler> logger = rootProvider.GetService<ILogger<JobScheduler>>() ?? NullLogger<JobScheduler>.Instance;
+    private readonly JobScheduler scheduler;
+    private readonly SchedulerRegistrations registrations;
+    private readonly IServiceProvider rootProvider;
+    private readonly ILogger<JobScheduler> logger;
     private EventHandler<JobErrorEventArgs>? errorHandler;
+
+    public SchedulerHostedService(JobScheduler scheduler, SchedulerRegistrations registrations, IServiceProvider rootProvider)
+    {
+        ArgumentNullException.ThrowIfNull(scheduler);
+        ArgumentNullException.ThrowIfNull(registrations);
+        ArgumentNullException.ThrowIfNull(rootProvider);
+
+        this.scheduler = scheduler;
+        this.registrations = registrations;
+        this.rootProvider = rootProvider;
+        logger = rootProvider.GetService<ILogger<JobScheduler>>() ?? NullLogger<JobScheduler>.Instance;
+    }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {

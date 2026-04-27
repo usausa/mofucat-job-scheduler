@@ -1,5 +1,7 @@
 namespace Mofucat.JobScheduler.Tests;
 
+using Mofucat.JobScheduler.Tests.Jobs;
+
 public sealed class JobSchedulerOptionsTests
 {
     [Fact]
@@ -8,12 +10,6 @@ public sealed class JobSchedulerOptionsTests
         var services = new ServiceCollection();
         var options = new JobSchedulerOptions(services, new SchedulerRegistrations());
 
-        Assert.Throws<ArgumentException>(() => options.UseJob<TestJob>(" "));
-    }
-
-    // ReSharper disable once ClassNeverInstantiated.Local
-    private sealed class TestJob : ISchedulerJob
-    {
-        public ValueTask ExecuteAsync(DateTimeOffset time, CancellationToken cancellationToken) => ValueTask.CompletedTask;
+        Assert.Throws<ArgumentException>(() => options.UseJob<NopJob>(" "));
     }
 }
