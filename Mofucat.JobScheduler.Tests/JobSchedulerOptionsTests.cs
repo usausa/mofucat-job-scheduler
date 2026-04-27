@@ -1,6 +1,6 @@
 namespace Mofucat.JobScheduler.Tests;
 
-using Mofucat.JobScheduler.Tests.Jobs;
+using Mofucat.JobScheduler.Tests.Mock;
 
 public sealed class JobSchedulerOptionsTests
 {

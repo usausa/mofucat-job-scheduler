@@ -1,7 +1,5 @@
 namespace Mofucat.JobScheduler.DependencyInjection;
 
-using System.Runtime;
-
 using Microsoft.Extensions.Logging;
 
 internal static partial class Log

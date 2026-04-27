@@ -1,4 +1,4 @@
-namespace Mofucat.JobScheduler.Tests.Jobs;
+namespace Mofucat.JobScheduler.Tests.Mock;
 
 // ReSharper disable once ClassNeverInstantiated.Global
 public sealed class NopJob : ISchedulerJob
