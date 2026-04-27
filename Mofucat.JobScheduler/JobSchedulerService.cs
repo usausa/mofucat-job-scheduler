@@ -367,14 +367,18 @@ public sealed class JobScheduler : IDisposable, IAsyncDisposable
         }
 
         var delayTaskSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+#pragma warning disable CA2007
         await using var timer = timeProvider.CreateTimer(
             static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true),
             delayTaskSource,
             delay,
             Timeout.InfiniteTimeSpan);
+#pragma warning restore CA2007
+#pragma warning disable CA2007
         await using var cancellationRegistration = cancellationToken.Register(
             static state => ((TaskCompletionSource<bool>)state!).TrySetCanceled(),
             delayTaskSource);
+#pragma warning restore CA2007
 
         await Task.WhenAny(wakeupTask, delayTaskSource.Task).ConfigureAwait(false);
 

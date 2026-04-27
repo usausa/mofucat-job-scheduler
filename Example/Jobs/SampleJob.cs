@@ -10,8 +10,6 @@ public sealed class SampleJob : ISchedulerJob
 
     public SampleJob(ILogger<SampleJob> log)
     {
-        ArgumentNullException.ThrowIfNull(log);
-
         this.log = log;
     }
 
