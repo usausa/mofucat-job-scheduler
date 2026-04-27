@@ -29,5 +29,4 @@ global using Microsoft.Extensions.Hosting;
 global using Mofucat.JobScheduler;
 global using Mofucat.JobScheduler.DependencyInjection;
 
-
 global using Xunit;

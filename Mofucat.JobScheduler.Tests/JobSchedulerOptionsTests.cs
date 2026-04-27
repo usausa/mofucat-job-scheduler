@@ -2,7 +2,7 @@ namespace Mofucat.JobScheduler.Tests;
 
 using Mofucat.JobScheduler.Tests.Jobs;
 
-public sealed class JobSchedulerOptionsTests
+public sealed class JobSchedulerOptionsTest
 {
     [Fact]
     public void UseJobWhenExpressionIsWhitespaceThenThrowsArgumentException()
