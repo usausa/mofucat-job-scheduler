@@ -1,4 +1,4 @@
-namespace Mofucat.JobScheduler;
+namespace Mofucat.JobScheduler.DependencyInjection;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -33,7 +33,6 @@ public sealed class SchedulerHostedService : IHostedService
             scheduler.AddJob(registration.CronExpression, registration.Factory(rootProvider), registration.Name);
         }
 
-        errorHandler = static (_, _) => { };
         errorHandler = (_, arguments) => logger.LogError(arguments.Exception, "Scheduler job '{JobName}' failed", arguments.JobName);
         scheduler.JobError += errorHandler;
         scheduler.Start();

@@ -1,4 +1,4 @@
-namespace Mofucat.JobScheduler;
+namespace Mofucat.JobScheduler.DependencyInjection;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;

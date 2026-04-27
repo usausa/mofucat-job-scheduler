@@ -1,4 +1,4 @@
-namespace Mofucat.JobScheduler;
+namespace Mofucat.JobScheduler.DependencyInjection;
 
 public sealed class JobRegistration
 {
