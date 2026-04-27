@@ -1,4 +1,4 @@
-namespace Mofucat.JobScheduler.Sample.Services;
+namespace Example.Services;
 
 public sealed class FeatureService
 {

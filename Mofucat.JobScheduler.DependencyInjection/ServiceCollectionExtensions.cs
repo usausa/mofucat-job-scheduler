@@ -17,18 +17,18 @@ public static class ServiceCollectionExtensions
     /// <param name="services">The target service collection.</param>
     /// <param name="options">The scheduler configuration.</param>
     /// <returns>The updated service collection.</returns>
-    public static IServiceCollection AddJobScheduler(this IServiceCollection services, Action<Mofucat.JobScheduler.JobSchedulerOptions>? options = null)
+    public static IServiceCollection AddJobScheduler(this IServiceCollection services, Action<JobSchedulerOptions>? options = null)
     {
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton(TimeProvider.System);
-        services.TryAddSingleton<Mofucat.JobScheduler.JobScheduler>();
+        services.TryAddSingleton<JobScheduler>();
         var registrations = GetOrCreateRegistrations(services);
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, Mofucat.JobScheduler.SchedulerHostedService>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, SchedulerHostedService>());
 
         if (options is not null)
         {
-            var schedulerOptions = new Mofucat.JobScheduler.JobSchedulerOptions(services, registrations);
+            var schedulerOptions = new JobSchedulerOptions(services, registrations);
             options(schedulerOptions);
         }
 
@@ -44,24 +44,24 @@ public static class ServiceCollectionExtensions
     /// <param name="name">The optional job name.</param>
     /// <returns>The updated service collection.</returns>
     public static IServiceCollection AddJobSchedulerJob<T>(this IServiceCollection services, string expression, string? name = null)
-        where T : class, Mofucat.JobScheduler.ISchedulerJob
+        where T : class, ISchedulerJob
     {
         ArgumentNullException.ThrowIfNull(services);
         return services.AddJobScheduler(options => options.UseJob<T>(expression, name));
     }
 
-    private static Mofucat.JobScheduler.SchedulerRegistrations GetOrCreateRegistrations(IServiceCollection services)
+    private static SchedulerRegistrations GetOrCreateRegistrations(IServiceCollection services)
     {
         var registration = services
-            .FirstOrDefault(static descriptor => descriptor.ServiceType == typeof(Mofucat.JobScheduler.SchedulerRegistrations))
-            ?.ImplementationInstance as Mofucat.JobScheduler.SchedulerRegistrations;
+            .FirstOrDefault(static descriptor => descriptor.ServiceType == typeof(SchedulerRegistrations))
+            ?.ImplementationInstance as SchedulerRegistrations;
 
         if (registration is not null)
         {
             return registration;
         }
 
-        var created = new Mofucat.JobScheduler.SchedulerRegistrations();
+        var created = new SchedulerRegistrations();
         services.AddSingleton(created);
         return created;
     }

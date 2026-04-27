@@ -1,9 +1,7 @@
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Mofucat.JobScheduler;
+using Example.Jobs;
+using Example.Services;
+
 using Mofucat.JobScheduler.DependencyInjection;
-using Mofucat.JobScheduler.Sample.Jobs;
-using Mofucat.JobScheduler.Sample.Services;
 
 var builder = Host.CreateApplicationBuilder(args);
 
