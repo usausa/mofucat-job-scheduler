@@ -5,6 +5,8 @@ using System.Linq;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 public static class ServiceCollectionExtensions
 {
@@ -42,6 +44,7 @@ public static class ServiceCollectionExtensions
 
     private static void AddCoreServices(IServiceCollection services)
     {
+        services.TryAddSingleton<ILogger<SchedulerHostedService>>(NullLogger<SchedulerHostedService>.Instance);
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<JobScheduler>();
     }

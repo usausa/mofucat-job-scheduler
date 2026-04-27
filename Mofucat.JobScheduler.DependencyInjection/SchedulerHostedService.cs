@@ -23,7 +23,7 @@ public sealed class SchedulerHostedService : IHostedService
         this.registry = registry;
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         foreach (var registration in registry.Jobs)
         {
@@ -33,11 +33,9 @@ public sealed class SchedulerHostedService : IHostedService
         errorHandler = (_, arguments) => log.ErrorSchedulerJobFailed(arguments.Exception, arguments.JobName);
         scheduler.JobError += errorHandler;
 
-        scheduler.Start();
+        await scheduler.StartAsync().ConfigureAwait(false);
 
         log.InfoSchedulerStarted();
-
-        return Task.CompletedTask;
     }
 
     public async Task StopAsync(CancellationToken cancellationToken)

@@ -2,9 +2,14 @@ namespace Mofucat.JobScheduler.Tests;
 
 public sealed class JobSchedulerTests
 {
+    //--------------------------------------------------------------------------------
+    // Tests
+    //--------------------------------------------------------------------------------
+
     [Fact]
     public async Task StartWhenJobRunsThenUsesTimeProviderForExecutionTime()
     {
+        // Arrange
         var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
 #pragma warning disable CA2007
         await using var scheduler = new JobScheduler(timeProvider);
@@ -12,11 +17,13 @@ public sealed class JobSchedulerTests
         var job = new RecordingJob();
         scheduler.AddJob("*/10 * * * * *", job, "sample");
 
-        scheduler.Start();
+        // Act
+        await scheduler.StartAsync();
         timeProvider.Advance(TimeSpan.FromSeconds(5));
 
         var nextRun = await job.WaitForExecutionAsync();
 
+        // Assert
         Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 10, TimeSpan.Zero), nextRun);
 
         await scheduler.StopAsync();
@@ -25,6 +32,7 @@ public sealed class JobSchedulerTests
     [Fact]
     public async Task RemoveAllJobsWhenSchedulerIsRunningThenRemovesJobsAndPreventsExecution()
     {
+        // Arrange
         var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
 #pragma warning disable CA2007
         await using var scheduler = new JobScheduler(timeProvider);
@@ -33,12 +41,14 @@ public sealed class JobSchedulerTests
         var secondJob = new RecordingJob();
         var firstHandle = scheduler.AddJob("*/10 * * * * *", firstJob, "first");
         var secondHandle = scheduler.AddJob("*/10 * * * * *", secondJob, "second");
-        scheduler.Start();
+        await scheduler.StartAsync();
 
+        // Act
         var removedCount = scheduler.RemoveAllJobs();
         timeProvider.Advance(TimeSpan.FromSeconds(10));
         await Task.Delay(50, TestContext.Current.CancellationToken);
 
+        // Assert
         Assert.Equal(2, removedCount);
         Assert.True(firstHandle.IsRemoved);
         Assert.True(secondHandle.IsRemoved);
@@ -52,18 +62,22 @@ public sealed class JobSchedulerTests
     [Fact]
     public async Task AddJobWhenSchedulerIsRunningThenJobExecutesAtNextScheduledTime()
     {
+        // Arrange
         var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
 #pragma warning disable CA2007
         await using var scheduler = new JobScheduler(timeProvider);
 #pragma warning restore CA2007
-        scheduler.Start();
+        await scheduler.StartAsync();
 
         var job = new RecordingJob();
+
+        // Act
         var handle = scheduler.AddJob("*/10 * * * * *", job, "dynamic");
         timeProvider.Advance(TimeSpan.FromSeconds(5));
 
         var nextRun = await job.WaitForExecutionAsync();
 
+        // Assert
         Assert.Equal("dynamic", handle.Name);
         Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 10, TimeSpan.Zero), nextRun);
 
@@ -73,24 +87,31 @@ public sealed class JobSchedulerTests
     [Fact]
     public async Task RemoveJobWhenJobIsRemovedBeforeDueTimeThenJobDoesNotExecute()
     {
+        // Arrange
         var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
 #pragma warning disable CA2007
         await using var scheduler = new JobScheduler(timeProvider);
 #pragma warning restore CA2007
         var job = new RecordingJob();
         var handle = scheduler.AddJob("*/10 * * * * *", job, "dynamic");
-        scheduler.Start();
+        await scheduler.StartAsync();
 
+        // Act
         var removed = handle.Remove();
         timeProvider.Advance(TimeSpan.FromSeconds(10));
         await Task.Delay(50, TestContext.Current.CancellationToken);
 
+        // Assert
         Assert.True(removed);
         Assert.True(handle.IsRemoved);
         Assert.False(job.HasExecuted);
 
         await scheduler.StopAsync();
     }
+
+    //--------------------------------------------------------------------------------
+    // Test doubles
+    //--------------------------------------------------------------------------------
 
     private sealed class RecordingJob : ISchedulerJob
     {
@@ -106,6 +127,10 @@ public sealed class JobSchedulerTests
 
         public Task<DateTimeOffset> WaitForExecutionAsync() => completionSource.Task;
     }
+
+    //--------------------------------------------------------------------------------
+    // ManualTimeProvider
+    //--------------------------------------------------------------------------------
 
     private sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
     {
@@ -173,6 +198,10 @@ public sealed class JobSchedulerTests
         }
 
         private void Remove(long id) => timers.TryRemove(id, out _);
+
+        //--------------------------------------------------------------------------------
+        // TimerRegistration
+        //--------------------------------------------------------------------------------
 
         private sealed class TimerRegistration(long id, ManualTimeProvider owner, TimerCallback callback, object? state, DateTimeOffset nextTick, TimeSpan period) : ITimer
         {
