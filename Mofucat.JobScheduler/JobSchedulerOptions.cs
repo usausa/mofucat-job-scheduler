@@ -8,8 +8,6 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 /// </summary>
 public sealed class JobSchedulerOptions(IServiceCollection services, SchedulerRegistrations registrations)
 {
-    private readonly SchedulerRegistrations registrations = registrations;
-
     /// <summary>
     /// Gets the configured service collection.
     /// </summary>

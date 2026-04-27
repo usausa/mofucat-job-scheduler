@@ -1,6 +1,7 @@
 namespace Mofucat.JobScheduler.Tests;
 
-#pragma warning disable CA1812
+using Mofucat.JobScheduler.Tests.TestJobs;
+
 public sealed class ServiceCollectionExtensionsTests
 {
     [Fact]
@@ -19,9 +20,4 @@ public sealed class ServiceCollectionExtensionsTests
         Assert.Contains(hostedServices, static service => service is SchedulerHostedService);
     }
 
-    private sealed class TestJob : ISchedulerJob
-    {
-        public ValueTask ExecuteAsync(DateTimeOffset time, CancellationToken cancellationToken) => ValueTask.CompletedTask;
-    }
 }
-#pragma warning restore CA1812

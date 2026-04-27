@@ -71,7 +71,7 @@ public sealed class CronExpression
         {
             5 => ParseFiveField(expression, span, ranges),
             6 => ParseSixField(expression, span, ranges),
-            _ => throw new FormatException($"Cron expression must have 5 or 6 fields: '{expression}'."),
+            _ => throw new FormatException($"Cron expression must have 5 or 6 fields: '{expression}'.")
         };
     }
 

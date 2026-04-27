@@ -176,9 +176,8 @@ public sealed class JobScheduler(TimeProvider? timeProvider = null) : IDisposabl
 
         lock (sync)
         {
-            if (jobs.TryGetValue(name, out var job))
+            if (jobs.Remove(name, out var job))
             {
-                jobs.Remove(name);
                 job.Handle.MarkRemoved();
                 SignalWakeupUnsafe();
                 return true;
