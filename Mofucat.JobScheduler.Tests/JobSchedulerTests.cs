@@ -85,7 +85,7 @@ public sealed class JobSchedulerTests
     }
 
     [Fact]
-    public async Task RemoveJobWhenJobIsRemovedBeforeDueTimeThenJobDoesNotExecute()
+    public async Task RemoveJobWhenJobIsRemovedBeforeDueTimeThenReturnsRemovedHandleAndPreventsExecution()
     {
         // Arrange
         var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
