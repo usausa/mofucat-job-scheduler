@@ -3,6 +3,7 @@ namespace Example.Jobs;
 using Mofucat.JobScheduler;
 
 #pragma warning disable CA1848
+// ReSharper disable once ClassNeverInstantiated.Global
 public sealed class SampleJob : ISchedulerJob
 {
     private readonly ILogger<SampleJob> log;
