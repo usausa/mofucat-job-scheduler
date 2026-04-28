@@ -37,6 +37,23 @@ public sealed class JobScheduler : IAsyncDisposable
         }
     }
 
+    public IReadOnlyList<IJobHandle> JobHandles
+    {
+        get
+        {
+            lock (sync)
+            {
+                var handles = new IJobHandle[jobs.Count];
+                for (var index = 0; index < jobs.Count; index++)
+                {
+                    handles[index] = jobs[index].Handle;
+                }
+
+                return handles;
+            }
+        }
+    }
+
     public IReadOnlyList<string> JobNames
     {
         get
@@ -227,6 +244,19 @@ public sealed class JobScheduler : IAsyncDisposable
         lock (sync)
         {
             return jobsByName.GetValueOrDefault(name)?.Handle;
+        }
+    }
+
+    internal DateTimeOffset? GetNextExecutionTime(string name)
+    {
+        lock (sync)
+        {
+            if (jobsByName.TryGetValue(name, out var job))
+            {
+                return job.Next;
+            }
+
+            return null;
         }
     }
 

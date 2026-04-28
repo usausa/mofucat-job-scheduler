@@ -137,4 +137,45 @@ public sealed class JobSchedulerTests
         // Assert
         Assert.Null(handle);
     }
+
+    [Fact]
+    public async Task JobHandlesWhenJobsExistThenReturnsAllRegisteredHandles()
+    {
+        // Arrange
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler();
+#pragma warning restore CA2007
+        var firstHandle = scheduler.AddJob("*/10 * * * * *", new RecordingJob(), "first");
+        var secondHandle = scheduler.AddJob("*/15 * * * * *", new RecordingJob(), "second");
+
+        // Act
+        var handles = scheduler.JobHandles;
+
+        // Assert
+        Assert.Equal(2, handles.Count);
+        Assert.Contains(handles, static handle => handle.Name == "first");
+        Assert.Contains(handles, static handle => handle.Name == "second");
+        Assert.Contains(firstHandle, handles);
+        Assert.Contains(secondHandle, handles);
+    }
+
+    [Fact]
+    public async Task NextExecutionTimeWhenSchedulerIsRunningThenReturnsScheduledTimeFromHandle()
+    {
+        // Arrange
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var handle = scheduler.AddJob("*/10 * * * * *", new RecordingJob(), "sample");
+        await scheduler.StartAsync();
+
+        // Act
+        var nextExecutionTime = handle.NextExecutionTime;
+
+        // Assert
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 10, TimeSpan.Zero), nextExecutionTime);
+
+        await scheduler.StopAsync();
+    }
 }

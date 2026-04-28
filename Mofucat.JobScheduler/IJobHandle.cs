@@ -8,5 +8,7 @@ public interface IJobHandle
 
     bool IsRemoved { get; }
 
+    DateTimeOffset? NextExecutionTime { get; }
+
     bool Remove();
 }

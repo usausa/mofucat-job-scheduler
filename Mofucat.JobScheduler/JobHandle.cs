@@ -12,6 +12,8 @@ internal sealed class JobHandle : IJobHandle
 
     public bool IsRemoved => removed;
 
+    public DateTimeOffset? NextExecutionTime => scheduler.GetNextExecutionTime(Name);
+
     public JobHandle(JobScheduler scheduler, string name, string cronExpression)
     {
         this.scheduler = scheduler;
