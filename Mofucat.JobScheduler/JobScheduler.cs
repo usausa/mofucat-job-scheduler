@@ -14,6 +14,7 @@ public sealed class JobScheduler : IAsyncDisposable
 
     private readonly List<ScheduledJob> jobs = [];
     private readonly Dictionary<string, ScheduledJob> jobsByName = [];
+    private readonly RunningTaskCollection runningTasks = new();
 
     private TaskCompletionSource<bool> wakeup = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private CancellationTokenSource? cancellationTokenSource;
@@ -44,9 +45,9 @@ public sealed class JobScheduler : IAsyncDisposable
             lock (sync)
             {
                 var handles = new IJobHandle[jobs.Count];
-                for (var index = 0; index < jobs.Count; index++)
+                for (var i = 0; i < jobs.Count; i++)
                 {
-                    handles[index] = jobs[index].Handle;
+                    handles[i] = jobs[i].Handle;
                 }
 
                 return handles;
@@ -61,9 +62,9 @@ public sealed class JobScheduler : IAsyncDisposable
             lock (sync)
             {
                 var names = new string[jobs.Count];
-                for (var index = 0; index < jobs.Count; index++)
+                for (var i = 0; i < jobs.Count; i++)
                 {
-                    names[index] = jobs[index].Name;
+                    names[i] = jobs[i].Name;
                 }
 
                 return names;
@@ -110,7 +111,8 @@ public sealed class JobScheduler : IAsyncDisposable
             }
 
             isRunning = true;
-            cancellationTokenSource = new CancellationTokenSource();
+            var currentCancellationTokenSource = new CancellationTokenSource();
+            cancellationTokenSource = currentCancellationTokenSource;
             wakeup = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             var now = timeProvider.GetUtcNow();
@@ -119,7 +121,8 @@ public sealed class JobScheduler : IAsyncDisposable
                 job.Next = job.Cron.GetNextOccurrence(now);
             }
 
-            loopTask = Task.Run(() => RunLoopAsync(cancellationTokenSource.Token));
+            // ReSharper disable once MethodSupportsCancellation
+            loopTask = Task.Run(() => RunLoopAsync(currentCancellationTokenSource.Token));
         }
 
         return Task.CompletedTask;
@@ -129,6 +132,7 @@ public sealed class JobScheduler : IAsyncDisposable
     {
         CancellationTokenSource? currentCancellationTokenSource;
         Task? currentLoopTask;
+        Task[] currentRunningTasks;
 
         lock (sync)
         {
@@ -140,6 +144,7 @@ public sealed class JobScheduler : IAsyncDisposable
             isRunning = false;
             currentCancellationTokenSource = cancellationTokenSource;
             currentLoopTask = loopTask;
+            currentRunningTasks = runningTasks.ToArray();
             cancellationTokenSource = null;
             loopTask = null;
 
@@ -161,6 +166,11 @@ public sealed class JobScheduler : IAsyncDisposable
             {
                 // Ignore
             }
+        }
+
+        if (currentRunningTasks.Length > 0)
+        {
+            await Task.WhenAll(currentRunningTasks).ConfigureAwait(false);
         }
 
         currentCancellationTokenSource?.Dispose();
@@ -273,14 +283,14 @@ public sealed class JobScheduler : IAsyncDisposable
 
     private async Task RunLoopAsync(CancellationToken cancellationToken)
     {
+        var firingJobs = new List<(ScheduledJob Job, DateTimeOffset FireTime)>();
+
         while (!cancellationToken.IsCancellationRequested)
         {
-            ScheduledJob? nextJob;
             DateTimeOffset? nextTime;
             Task wakeupTask;
             lock (sync)
             {
-                nextJob = null;
                 nextTime = null;
                 foreach (var job in jobs)
                 {
@@ -292,14 +302,13 @@ public sealed class JobScheduler : IAsyncDisposable
                     if ((nextTime is null) || (job.Next < nextTime))
                     {
                         nextTime = job.Next;
-                        nextJob = job;
                     }
                 }
 
                 wakeupTask = wakeup.Task;
             }
 
-            if (nextJob is null)
+            if (nextTime is null)
             {
                 // Wait
                 try
@@ -315,7 +324,7 @@ public sealed class JobScheduler : IAsyncDisposable
             }
 
             var now = timeProvider.GetUtcNow();
-            var delay = nextTime!.Value - now;
+            var delay = nextTime.Value - now;
             if (delay > MaxSingleWait)
             {
                 delay = MaxSingleWait;
@@ -334,30 +343,63 @@ public sealed class JobScheduler : IAsyncDisposable
                 }
 
                 now = timeProvider.GetUtcNow();
-            }
-
-            if (now < nextTime.Value)
-            {
-                continue;
-            }
-
-            ScheduledJob? firingJob = null;
-            var fireTime = nextTime.Value;
-            lock (sync)
-            {
-                if (jobsByName.TryGetValue(nextJob.Name, out var current) && ReferenceEquals(current, nextJob) && (current.Next == nextTime))
+                if (now < nextTime.Value)
                 {
-                    firingJob = current;
-                    current.Next = current.Cron.GetNextOccurrence(timeProvider.GetUtcNow());
+                    continue;
                 }
             }
 
-            if (firingJob is not null)
+            firingJobs.Clear();
+            lock (sync)
             {
-                // Run async
-                _ = FireJobAsync(firingJob, fireTime, cancellationToken);
+                foreach (var job in jobs)
+                {
+                    if ((job.Next is null) || (job.Next > now))
+                    {
+                        continue;
+                    }
+
+                    var scheduledTime = job.Next.Value;
+                    var fireTime = scheduledTime;
+                    if (scheduledTime < now)
+                    {
+                        fireTime = now;
+                    }
+
+                    firingJobs.Add((job, fireTime));
+                    job.Next = job.Cron.GetNextOccurrence(scheduledTime);
+                }
+            }
+
+            foreach (var (job, fireTime) in firingJobs)
+            {
+                TrackTask(FireJobAsync(job, fireTime, cancellationToken));
             }
         }
+    }
+
+    private void TrackTask(Task task)
+    {
+        ArgumentNullException.ThrowIfNull(task);
+
+        lock (sync)
+        {
+            runningTasks.Add(task);
+        }
+
+        _ = task.ContinueWith(
+            static (completedTask, state) =>
+            {
+                var scheduler = (JobScheduler)state!;
+                lock (scheduler.sync)
+                {
+                    scheduler.runningTasks.Remove(completedTask);
+                }
+            },
+            this,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private async Task WaitAsync(Task wakeupTask, TimeSpan delay, CancellationToken cancellationToken)
@@ -375,33 +417,12 @@ public sealed class JobScheduler : IAsyncDisposable
             return;
         }
 
-        // Wait timer
-        var delayTaskSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-#pragma warning disable CA2007
-        await using var timer = timeProvider.CreateTimer(
-            static state => ((TaskCompletionSource<bool>)state!).TrySetResult(true),
-            delayTaskSource,
-            delay,
-            Timeout.InfiniteTimeSpan);
-#pragma warning restore CA2007
-#pragma warning disable CA2007
-        await using var cancellationRegistration = cancellationToken.Register(
-            static state => ((TaskCompletionSource<bool>)state!).TrySetCanceled(),
-            delayTaskSource);
-#pragma warning restore CA2007
-
-        await Task.WhenAny(wakeupTask, delayTaskSource.Task).ConfigureAwait(false);
-
-        try
+        var delayTask = Task.Delay(delay, timeProvider, cancellationToken);
+        var completedTask = await Task.WhenAny(wakeupTask, delayTask).ConfigureAwait(false);
+        if (ReferenceEquals(completedTask, delayTask) && delayTask.IsCanceled)
         {
-            await delayTaskSource.Task.ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
         }
-        catch (OperationCanceledException)
-        {
-            // ignore
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
     }
 
     private async Task FireJobAsync(ScheduledJob job, DateTimeOffset fireTime, CancellationToken cancellationToken)
@@ -420,5 +441,68 @@ public sealed class JobScheduler : IAsyncDisposable
             JobError?.Invoke(this, new JobErrorEventArgs(job.Name, ex));
         }
 #pragma warning restore CA1031
+    }
+
+    private sealed class RunningTaskCollection
+    {
+        private const int InitialCapacity = 4;
+
+        private Task?[] tasks = new Task?[InitialCapacity];
+        private int count;
+
+        public void Add(Task task)
+        {
+            for (var i = 0; i < tasks.Length; i++)
+            {
+                if (tasks[i] is null)
+                {
+                    tasks[i] = task;
+                    count++;
+                    return;
+                }
+            }
+
+            var newTasks = new Task?[tasks.Length * 2];
+            Array.Copy(tasks, newTasks, tasks.Length);
+            newTasks[tasks.Length] = task;
+            tasks = newTasks;
+            count++;
+        }
+
+        public void Remove(Task task)
+        {
+            for (var i = 0; i < tasks.Length; i++)
+            {
+                if (!ReferenceEquals(tasks[i], task))
+                {
+                    continue;
+                }
+
+                tasks[i] = null;
+                count--;
+                return;
+            }
+        }
+
+        public Task[] ToArray()
+        {
+            if (count == 0)
+            {
+                return [];
+            }
+
+            var result = new Task[count];
+            var writeIndex = 0;
+            // ReSharper disable once ForCanBeConvertedToForeach
+            for (var i = 0; i < tasks.Length; i++)
+            {
+                if (tasks[i] is { } task)
+                {
+                    result[writeIndex++] = task;
+                }
+            }
+
+            return result;
+        }
     }
 }

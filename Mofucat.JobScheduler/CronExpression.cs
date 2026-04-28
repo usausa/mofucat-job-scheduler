@@ -6,11 +6,6 @@ using System.Runtime.InteropServices;
 
 public sealed class CronExpression
 {
-    private const int MonthMin = 1;
-    private const int MonthMax = 12;
-    private const int DayOfMonthMin = 1;
-    private const int DayOfMonthMax = 31;
-
     // day-of-month is restricted by a non-wildcard value
     private const byte DayOfMonthRestricted = 0x1;
     // day-of-week is restricted by a non-wildcard value
@@ -81,8 +76,8 @@ public sealed class CronExpression
                 1UL,
                 ParseFieldMask64(span[ranges[0]], 0, 59, "minute"),
                 (uint)ParseFieldMask64(span[ranges[1]], 0, 23, "hour"),
-                (uint)ParseFieldMask64(span[ranges[2]], DayOfMonthMin, DayOfMonthMax, "day-of-month"),
-                (ushort)ParseFieldMask64(span[ranges[3]], MonthMin, MonthMax, "month"),
+                (uint)ParseFieldMask64(span[ranges[2]], 1, 31, "day-of-month"),
+                (ushort)ParseFieldMask64(span[ranges[3]], 1, 12, "month"),
                 (byte)ParseFieldMask64(span[ranges[4]], 0, 6, "day-of-week"),
                 GetFlags(span[ranges[2]], span[ranges[4]]));
         }
@@ -94,8 +89,8 @@ public sealed class CronExpression
                 ParseFieldMask64(span[ranges[0]], 0, 59, "second"),
                 ParseFieldMask64(span[ranges[1]], 0, 59, "minute"),
                 (uint)ParseFieldMask64(span[ranges[2]], 0, 23, "hour"),
-                (uint)ParseFieldMask64(span[ranges[3]], DayOfMonthMin, DayOfMonthMax, "day-of-month"),
-                (ushort)ParseFieldMask64(span[ranges[4]], MonthMin, MonthMax, "month"),
+                (uint)ParseFieldMask64(span[ranges[3]], 1, 31, "day-of-month"),
+                (ushort)ParseFieldMask64(span[ranges[4]], 1, 12, "month"),
                 (byte)ParseFieldMask64(span[ranges[5]], 0, 6, "day-of-week"),
                 GetFlags(span[ranges[3]], span[ranges[5]]));
         }
@@ -112,18 +107,12 @@ public sealed class CronExpression
 
     private DateTimeOffset? GetNextOccurrenceWithoutSeconds(DateTimeOffset from)
     {
-        var offset = from.Offset;
         var year = from.Year;
         var month = from.Month;
         var day = from.Day;
         var hour = from.Hour;
-        var minute = from.Minute;
-        var second = 0;
-
-        if (from.Second >= 59)
-        {
-            minute++;
-        }
+        var minute = from.Minute + 1;
+        var offset = from.Offset;
 
         if (minute > 59)
         {
@@ -152,7 +141,6 @@ public sealed class CronExpression
                 day = 1;
                 hour = 0;
                 minute = 0;
-                second = 0;
                 continue;
             }
 
@@ -161,16 +149,15 @@ public sealed class CronExpression
             {
                 // If the current day exceeds the end of the month, move to the first day of the next month
                 month++;
-                if (month > MonthMax)
+                if (month > 12)
                 {
-                    month = MonthMin;
+                    month = 1;
                     year++;
                 }
 
                 day = 1;
                 hour = 0;
                 minute = 0;
-                second = 0;
                 continue;
             }
 
@@ -180,13 +167,12 @@ public sealed class CronExpression
                 day++;
                 hour = 0;
                 minute = 0;
-                second = 0;
                 if (day > maxDay)
                 {
                     month++;
-                    if (month > MonthMax)
+                    if (month > 12)
                     {
-                        month = MonthMin;
+                        month = 1;
                         year++;
                     }
 
@@ -203,13 +189,12 @@ public sealed class CronExpression
                 day++;
                 hour = 0;
                 minute = 0;
-                second = 0;
                 if (day > maxDay)
                 {
                     month++;
-                    if (month > MonthMax)
+                    if (month > 12)
                     {
-                        month = MonthMin;
+                        month = 1;
                         year++;
                     }
 
@@ -224,7 +209,6 @@ public sealed class CronExpression
                 // When the hour changes, reset lower-order components and search again
                 hour = nextHour;
                 minute = 0;
-                second = 0;
             }
 
             var nextMinute = FindNextBit(minutesMask, minute, 59);
@@ -233,7 +217,6 @@ public sealed class CronExpression
                 // If no matching minute exists within the current hour, advance to the next hour
                 hour++;
                 minute = 0;
-                second = 0;
                 if (hour > 23)
                 {
                     day++;
@@ -241,9 +224,9 @@ public sealed class CronExpression
                     if (day > maxDay)
                     {
                         month++;
-                        if (month > MonthMax)
+                        if (month > 12)
                         {
-                            month = MonthMin;
+                            month = 1;
                             year++;
                         }
 
@@ -256,19 +239,7 @@ public sealed class CronExpression
 
             minute = nextMinute;
 
-            if ((year == from.Year) && (month == from.Month) && (day == from.Day) && (hour == from.Hour) && (minute == from.Minute) && (second == from.Second))
-            {
-                // The exact base time is not considered the next occurrence, so advance to the next candidate
-                day++;
-                hour = 0;
-                minute = 0;
-                second = 0;
-                AdjustDay(ref year, ref month, ref day);
-
-                continue;
-            }
-
-            return new DateTimeOffset(year, month, day, hour, minute, second, offset);
+            return new DateTimeOffset(year, month, day, hour, minute, 0, offset);
         }
 
         return null;
@@ -276,7 +247,6 @@ public sealed class CronExpression
 
     private DateTimeOffset? GetNextOccurrenceWithSeconds(DateTimeOffset from)
     {
-        var offset = from.Offset;
         var year = from.Year;
         var month = from.Month;
         var day = from.Day;
@@ -303,13 +273,12 @@ public sealed class CronExpression
             AdjustDay(ref year, ref month, ref day);
         }
 
+        var offset = from.Offset;
         var maxYear = year + 5;
-
         while (year < maxYear)
         {
             if ((monthsMask & (1 << month)) == 0)
             {
-                // Skip forward until a matching month is found
                 if (!AdvanceToNextMonth(ref year, ref month, maxYear))
                 {
                     break;
@@ -326,9 +295,9 @@ public sealed class CronExpression
             if (day > maxDay)
             {
                 month++;
-                if (month > MonthMax)
+                if (month > 12)
                 {
-                    month = MonthMin;
+                    month = 1;
                     year++;
                 }
 
@@ -341,7 +310,6 @@ public sealed class CronExpression
 
             if (!IsDayMatch(year, month, day))
             {
-                // Evaluate the day according to the combined day-of-month and day-of-week rules
                 day++;
                 hour = 0;
                 minute = 0;
@@ -349,9 +317,9 @@ public sealed class CronExpression
                 if (day > maxDay)
                 {
                     month++;
-                    if (month > MonthMax)
+                    if (month > 12)
                     {
-                        month = MonthMin;
+                        month = 1;
                         year++;
                     }
 
@@ -371,9 +339,9 @@ public sealed class CronExpression
                 if (day > maxDay)
                 {
                     month++;
-                    if (month > MonthMax)
+                    if (month > 12)
                     {
-                        month = MonthMin;
+                        month = 1;
                         year++;
                     }
 
@@ -385,7 +353,6 @@ public sealed class CronExpression
 
             if (nextHour != hour)
             {
-                // When the hour changes, restart minute and second selection from the first candidate
                 hour = nextHour;
                 minute = 0;
                 second = 0;
@@ -404,9 +371,9 @@ public sealed class CronExpression
                     if (day > maxDay)
                     {
                         month++;
-                        if (month > MonthMax)
+                        if (month > 12)
                         {
-                            month = MonthMin;
+                            month = 1;
                             year++;
                         }
 
@@ -422,15 +389,8 @@ public sealed class CronExpression
             var nextSecond = FindNextBit(secondsMask, second, 59);
             if (nextSecond < 0)
             {
-                // If no matching second exists, carry over to the next minute
-                var resetSecond = FindNextBit(secondsMask, 0, 59);
-                if (resetSecond < 0)
-                {
-                    return null;
-                }
-
                 minute++;
-                second = resetSecond;
+                second = 0;
                 if (minute > 59)
                 {
                     minute = 0;
@@ -442,9 +402,9 @@ public sealed class CronExpression
                         if (day > maxDay)
                         {
                             month++;
-                            if (month > MonthMax)
+                            if (month > 12)
                             {
-                                month = MonthMin;
+                                month = 1;
                                 year++;
                             }
 
@@ -457,18 +417,6 @@ public sealed class CronExpression
             }
 
             second = nextSecond;
-
-            if ((year == from.Year) && (month == from.Month) && (day == from.Day) && (hour == from.Hour) && (minute == from.Minute) && (second == from.Second))
-            {
-                // Do not return the current instant itself; continue searching for a later candidate
-                day++;
-                hour = 0;
-                minute = 0;
-                second = 0;
-                AdjustDay(ref year, ref month, ref day);
-
-                continue;
-            }
 
             return new DateTimeOffset(year, month, day, hour, minute, second, offset);
         }
@@ -764,7 +712,7 @@ public sealed class CronExpression
     private bool AdvanceToNextMonth(ref int year, ref int month, int maxYear)
     {
         // Prefer the next matching month within the same year
-        var nextMonth = FindNextBit(monthsMask, month + 1, MonthMax);
+        var nextMonth = FindNextBit(monthsMask, month + 1, 12);
         if (nextMonth >= 0)
         {
             month = nextMonth;
@@ -778,7 +726,7 @@ public sealed class CronExpression
             return false;
         }
 
-        nextMonth = FindNextBit(monthsMask, MonthMin, MonthMax);
+        nextMonth = FindNextBit(monthsMask, 1, 12);
         if (nextMonth < 0)
         {
             return false;
@@ -797,9 +745,9 @@ public sealed class CronExpression
         {
             day = 1;
             month++;
-            if (month > MonthMax)
+            if (month > 12)
             {
-                month = MonthMin;
+                month = 1;
                 year++;
             }
         }

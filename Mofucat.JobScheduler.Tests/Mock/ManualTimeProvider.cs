@@ -48,32 +48,47 @@ public sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
 
     public void Advance(TimeSpan amount)
     {
-        List<(TimerCallback Callback, object? State)> dueCallbacks = [];
-        lock (sync)
+        var dueCallbacks = new Queue<(TimerCallback Callback, object? State)>();
+
+        while (true)
         {
-            current += amount;
-            foreach (var registration in timers.Values)
+            lock (sync)
             {
-                if (registration.IsDisposed || (registration.NextTick > current))
+                if (dueCallbacks.Count == 0)
                 {
-                    continue;
+                    current += amount;
                 }
 
-                dueCallbacks.Add((registration.Callback, registration.State));
-                if (registration.Period == Timeout.InfiniteTimeSpan)
+                foreach (var registration in timers.Values)
                 {
-                    registration.Dispose();
+                    if (registration.IsDisposed || (registration.NextTick > current))
+                    {
+                        continue;
+                    }
+
+                    dueCallbacks.Enqueue((registration.Callback, registration.State));
+                    if (registration.Period == Timeout.InfiniteTimeSpan)
+                    {
+                        registration.Dispose();
+                    }
+                    else
+                    {
+                        registration.NextTick = current + registration.Period;
+                    }
                 }
-                else
+
+                if (dueCallbacks.Count == 0)
                 {
-                    registration.NextTick = current + registration.Period;
+                    break;
                 }
             }
-        }
 
-        foreach (var (callback, state) in dueCallbacks)
-        {
-            callback(state);
+            while (dueCallbacks.TryDequeue(out var callback))
+            {
+                callback.Callback(callback.State);
+            }
+
+            amount = TimeSpan.Zero;
         }
     }
 

@@ -36,6 +36,17 @@ public sealed class CronExpressionTest
     }
 
     [Fact]
+    public void GetNextOccurrenceWhenUsingFiveFieldsAndCurrentTimeHasSubMinutePartThenSkipsPastMinute()
+    {
+        var expression = CronExpression.Parse("*/1 * * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 10, 7, 30, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 8, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
     public void GetNextOccurrenceWhenUsingSixFieldsThenReturnsNextSecond()
     {
         var expression = CronExpression.Parse("*/10 * * * * *");
@@ -44,6 +55,28 @@ public sealed class CronExpressionTest
         var next = expression.GetNextOccurrence(from);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 10, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingSixFieldsAndTimeMatchesExactlyThenReturnsStrictlyLaterSecond()
+    {
+        var expression = CronExpression.Parse("*/1 * * * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 2, 43, 0, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 2, 43, 1, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingSixFieldsAndTimeHasFractionThenReturnsStrictlyLaterSecond()
+    {
+        var expression = CronExpression.Parse("*/1 * * * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 2, 43, 0, 1, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 2, 43, 1, TimeSpan.Zero), next);
     }
 
     [Fact]
@@ -80,6 +113,83 @@ public sealed class CronExpressionTest
     }
 
     [Fact]
+    public void GetNextOccurrenceWhenUsingFiveFieldsAndCurrentTimeMatchesThenReturnsNextMatchingMinute()
+    {
+        var expression = CronExpression.Parse("*/1 * * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 10, 7, 0, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 8, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingFiveFieldsAndTimeMatchesExactlyThenReturnsStrictlyLaterMinute()
+    {
+        var expression = CronExpression.Parse("*/1 * * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 2, 43, 0, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 2, 44, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingFiveFieldsAndTimeHasFractionThenReturnsStrictlyLaterMinute()
+    {
+        var expression = CronExpression.Parse("*/1 * * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 2, 43, 0, 1, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 2, 44, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingFiveFieldsAndCurrentTimeMatchesAtHourBoundaryThenReturnsNextMatchingHour()
+    {
+        var expression = CronExpression.Parse("0 */1 * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 10, 0, 0, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 11, 0, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingFiveFieldsAndCurrentTimeMatchesAtDayBoundaryThenReturnsNextMatchingDay()
+    {
+        var expression = CronExpression.Parse("0 0 * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 0, 0, 0, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 27, 0, 0, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingFiveFieldsAndCurrentTimeMatchesAtMonthBoundaryThenReturnsNextMatchingMonth()
+    {
+        var expression = CronExpression.Parse("0 0 1 * *");
+        var from = new DateTimeOffset(2026, 4, 1, 0, 0, 0, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingFiveFieldsAndCurrentTimeMatchesAtYearBoundaryThenReturnsNextMatchingYear()
+    {
+        var expression = CronExpression.Parse("0 0 1 1 *");
+        var from = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2027, 1, 1, 0, 0, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
     public void GetNextOccurrenceWhenUsingSixFieldsAcrossMinuteBoundaryThenReturnsNextMatchingSecond()
     {
         var expression = CronExpression.Parse("*/10 * * * * *");
@@ -88,6 +198,72 @@ public sealed class CronExpressionTest
         var next = expression.GetNextOccurrence(from);
 
         Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 8, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingSixFieldsAndCurrentTimeMatchesThenReturnsNextMatchingSecond()
+    {
+        var expression = CronExpression.Parse("*/1 * * * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 6, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingSixFieldsAndCurrentTimeMatchesAtMinuteBoundaryThenReturnsNextMatchingMinute()
+    {
+        var expression = CronExpression.Parse("0 */1 * * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 10, 7, 0, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 8, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingSixFieldsAndCurrentTimeMatchesAtHourBoundaryThenReturnsNextMatchingHour()
+    {
+        var expression = CronExpression.Parse("0 0 */1 * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 10, 0, 0, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 11, 0, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingSixFieldsAndCurrentTimeMatchesAtDayBoundaryThenReturnsNextMatchingDay()
+    {
+        var expression = CronExpression.Parse("0 0 0 * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 0, 0, 0, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 27, 0, 0, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingSixFieldsAndCurrentTimeMatchesAtMonthBoundaryThenReturnsNextMatchingMonth()
+    {
+        var expression = CronExpression.Parse("0 0 0 1 * *");
+        var from = new DateTimeOffset(2026, 4, 1, 0, 0, 0, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenUsingSixFieldsAndCurrentTimeMatchesAtYearBoundaryThenReturnsNextMatchingYear()
+    {
+        var expression = CronExpression.Parse("0 0 0 1 1 *");
+        var from = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2027, 1, 1, 0, 0, 0, TimeSpan.Zero), next);
     }
 
     [Fact]
