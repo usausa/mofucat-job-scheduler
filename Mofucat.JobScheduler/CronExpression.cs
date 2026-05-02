@@ -62,6 +62,7 @@ public sealed class CronExpression
     // Parse
     //--------------------------------------------------------------------------------
 
+    [SkipLocalsInit]
     public static CronExpression Parse(string expression)
     {
         var span = expression.AsSpan();
@@ -681,18 +682,20 @@ public sealed class CronExpression
             return true;
         }
 
-        // Evaluate day-of-month and day-of-week matches independently
-        var dayOfMonthMatch = (daysOfMonthMask & (1U << day)) != 0;
-        var dayOfWeekMatch = (daysOfWeekMask & (1 << CalcDayOfWeek(year, month, day))) != 0;
-
         if ((localFlags & (DayOfMonthRestricted | DayOfWeekRestricted)) == (DayOfMonthRestricted | DayOfWeekRestricted))
         {
-            // When both are restricted, cron semantics treat them as an OR condition
-            return dayOfMonthMatch || dayOfWeekMatch;
+            // When both are restricted, cron semantics treat them as an OR condition.
+            return ((daysOfMonthMask & (1U << day)) != 0) ||
+                   ((daysOfWeekMask & (1 << CalcDayOfWeek(year, month, day))) != 0);
         }
 
         // When only one side is restricted, only that condition is used
-        return (localFlags & DayOfMonthRestricted) != 0 ? dayOfMonthMatch : dayOfWeekMatch;
+        if ((localFlags & DayOfMonthRestricted) != 0)
+        {
+            return (daysOfMonthMask & (1U << day)) != 0;
+        }
+
+        return (daysOfWeekMask & (1 << CalcDayOfWeek(year, month, day))) != 0;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
