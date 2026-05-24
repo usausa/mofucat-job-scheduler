@@ -20,7 +20,7 @@ public sealed class JobSchedulerOptions
         this.registry = registry;
     }
 
-    public void UseJob<T>(string expression, string? name = null)
+    public void UseJob<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(string expression, string? name = null)
         where T : class, ISchedulerJob
     {
         ValidateCronExpression(expression);
@@ -28,7 +28,7 @@ public sealed class JobSchedulerOptions
         registry.Jobs.Add(new JobRegistration(name, expression, static serviceProvider => serviceProvider.GetRequiredService<T>()));
     }
 
-    public void UseScopedJob<T>(string expression, string? name = null)
+    public void UseScopedJob<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(string expression, string? name = null)
         where T : class, ISchedulerJob
     {
         ValidateCronExpression(expression);
