@@ -1,5 +1,7 @@
 namespace Mofucat.JobScheduler.DependencyInjection;
 
+using System.Diagnostics.CodeAnalysis;
+
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -34,7 +36,9 @@ public sealed class JobSchedulerOptions
         registry.Jobs.Add(new JobRegistration(name, expression, static serviceProvider => new ScopedJobAdapter(serviceProvider, typeof(T))));
     }
 
-    public void UseScopedJob(string expression, Type jobType, string? name = null)
+    [RequiresDynamicCode("Type-based DI registration requires dynamic code. Use the generic UseScopedJob<T>() overload instead.")]
+    [RequiresUnreferencedCode("Type-based DI registration may not be compatible with trimming. Use the generic UseScopedJob<T>() overload instead.")]
+    public void UseScopedJob(string expression, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type jobType, string? name = null)
     {
         ValidateCronExpression(expression);
         ArgumentNullException.ThrowIfNull(jobType);

@@ -1,14 +1,19 @@
 namespace Mofucat.JobScheduler.DependencyInjection;
 
+using System.Diagnostics.CodeAnalysis;
+
 using Microsoft.Extensions.DependencyInjection;
 
 internal sealed class ScopedJobAdapter : ISchedulerJob
 {
     private readonly IServiceProvider rootProvider;
 
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
     private readonly Type jobType;
 
-    public ScopedJobAdapter(IServiceProvider rootProvider, Type jobType)
+    public ScopedJobAdapter(
+        IServiceProvider rootProvider,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type jobType)
     {
         this.rootProvider = rootProvider;
         this.jobType = jobType;
