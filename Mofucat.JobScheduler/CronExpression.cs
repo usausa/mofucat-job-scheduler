@@ -591,7 +591,7 @@ public sealed class CronExpression
 
     private static int ParsePositiveInt32(ReadOnlySpan<char> value, string name, ReadOnlySpan<char> term)
     {
-        if ((!TryParseUInt32(value, out var parsedValue)) || (parsedValue == 0) || (parsedValue > int.MaxValue))
+        if ((!TryParseUInt32(value, out var parsedValue)) || (parsedValue == 0) || (parsedValue > Int32.MaxValue))
         {
             throw new FormatException($"Invalid step in field. name=[{name}], term=[{term}]");
         }
