@@ -359,6 +359,89 @@ public sealed class JobSchedulerTests
         await scheduler.StopAsync();
     }
 
+    [Fact]
+    public async Task MisfirePolicyCatchUpWhenTimeAdvancesFiveMinutesThenJobFiresFiveTimes()
+    {
+        // Arrange
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 30, TimeSpan.Zero));
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var job = new CountingJob();
+        scheduler.AddJob("*/1 * * * *", job, "sample");
+        await scheduler.StartAsync();
+
+        // Act: advance 5 minutes — scheduled times 10:08, 10:09, 10:10, 10:11, 10:12 all become due
+        timeProvider.Advance(TimeSpan.FromMinutes(5));
+        await job.WaitForExecutionsAsync(5, cancellationTokenSource.Token);
+        await Task.Delay(50, cancellationTokenSource.Token);
+
+        // Assert
+        Assert.Equal(5, job.ExecutionCount);
+
+        await scheduler.StopAsync();
+    }
+
+    [Fact]
+    public async Task MisfirePolicySkipWhenTimeAdvancesFiveMinutesThenJobFiresOnceAndNextTimeIsNowBased()
+    {
+        // Arrange
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var startTime = new DateTimeOffset(2026, 4, 26, 10, 7, 30, TimeSpan.Zero);
+        var timeProvider = new ManualTimeProvider(startTime);
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var job = new CountingJob();
+        var handle = scheduler.AddJob("*/1 * * * *", job, "sample", MisfirePolicy.Skip);
+        await scheduler.StartAsync();
+
+        // Act: advance 5 minutes — Skip policy fires only once and advances next from now
+        timeProvider.Advance(TimeSpan.FromMinutes(5));
+        await job.WaitForExecutionsAsync(1, cancellationTokenSource.Token);
+        await Task.Delay(50, cancellationTokenSource.Token);
+
+        // Assert: only one execution, not five
+        Assert.Equal(1, job.ExecutionCount);
+
+        // Next scheduled time should be based on now (10:12:30), not the missed scheduledTime
+        // GetNextOccurrence(10:12:30) = 10:13:00
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 13, 0, TimeSpan.Zero), handle.NextExecutionTime);
+
+        await scheduler.StopAsync();
+    }
+
+    [Fact]
+    public async Task JobErrorWhenHandlerThrowsThenStopAsyncCompletesNormallyAndSubsequentJobsRun()
+    {
+        // Arrange
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 30, TimeSpan.Zero));
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+
+        var throwingJob = new ThrowingJob();
+        var followUpJob = new CountingJob();
+        scheduler.AddJob("*/10 * * * * *", throwingJob, "throwing");
+        scheduler.AddJob("*/10 * * * * *", followUpJob, "followup");
+
+        scheduler.JobError += static (_, _) => throw new InvalidOperationException("handler error");
+
+        await scheduler.StartAsync();
+
+        // Trigger the jobs
+        timeProvider.Advance(TimeSpan.FromSeconds(10));
+        await followUpJob.WaitForExecutionsAsync(1, cancellationTokenSource.Token);
+
+        // Act: StopAsync must not throw even though the JobError handler threw
+        await scheduler.StopAsync();
+
+        // Assert: the follow-up job ran, confirming the scheduler loop kept running
+        Assert.True(followUpJob.ExecutionCount >= 1);
+    }
+
     private static CancellationTokenSource CreateCancellationTokenSource()
     {
         var cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);

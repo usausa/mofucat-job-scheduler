@@ -32,4 +32,21 @@ public sealed class ServiceCollectionExtensionsTests
 
         Assert.DoesNotContain(hostedServices, static service => service is SchedulerHostedService);
     }
+
+    [Fact]
+    public void UseJobWithMisfirePolicyWhenRegisteredThenRegistryContainsExpectedPolicy()
+    {
+        var services = new ServiceCollection();
+
+        services.AddJobSchedulerService(static options =>
+        {
+            options.UseJob("*/1 * * * *", new Mock.NopJob(), name: "skip-job", misfirePolicy: MisfirePolicy.Skip);
+        });
+
+        var provider = services.BuildServiceProvider();
+        var registry = provider.GetRequiredService<SchedulerRegistry>();
+
+        var registration = Assert.Single(registry.Jobs);
+        Assert.Equal(MisfirePolicy.Skip, registration.MisfirePolicy);
+    }
 }

@@ -20,25 +20,25 @@ public sealed class JobSchedulerOptions
         this.registry = registry;
     }
 
-    public void UseJob<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(string expression, string? name = null)
+    public void UseJob<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(string expression, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp)
         where T : class, ISchedulerJob
     {
         ValidateCronExpression(expression);
         services.TryAddSingleton<T>();
-        registry.Jobs.Add(new JobRegistration(name, expression, static serviceProvider => serviceProvider.GetRequiredService<T>()));
+        registry.Jobs.Add(new JobRegistration(name, expression, static serviceProvider => serviceProvider.GetRequiredService<T>(), misfirePolicy));
     }
 
-    public void UseScopedJob<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(string expression, string? name = null)
+    public void UseScopedJob<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(string expression, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp)
         where T : class, ISchedulerJob
     {
         ValidateCronExpression(expression);
         services.TryAddScoped<T>();
-        registry.Jobs.Add(new JobRegistration(name, expression, static serviceProvider => new ScopedJobAdapter(serviceProvider, typeof(T))));
+        registry.Jobs.Add(new JobRegistration(name, expression, static serviceProvider => new ScopedJobAdapter(serviceProvider, typeof(T)), misfirePolicy));
     }
 
     [RequiresDynamicCode("Type-based DI registration requires dynamic code. Use the generic UseScopedJob<T>() overload instead.")]
     [RequiresUnreferencedCode("Type-based DI registration may not be compatible with trimming. Use the generic UseScopedJob<T>() overload instead.")]
-    public void UseScopedJob(string expression, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type jobType, string? name = null)
+    public void UseScopedJob(string expression, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type jobType, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp)
     {
         ValidateCronExpression(expression);
         ArgumentNullException.ThrowIfNull(jobType);
@@ -49,23 +49,23 @@ public sealed class JobSchedulerOptions
         }
 
         services.TryAdd(ServiceDescriptor.Scoped(jobType, jobType));
-        registry.Jobs.Add(new JobRegistration(name, expression, serviceProvider => new ScopedJobAdapter(serviceProvider, jobType)));
+        registry.Jobs.Add(new JobRegistration(name, expression, serviceProvider => new ScopedJobAdapter(serviceProvider, jobType), misfirePolicy));
     }
 
-    public void UseJob(string expression, ISchedulerJob job, string? name = null)
+    public void UseJob(string expression, ISchedulerJob job, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp)
     {
         ValidateCronExpression(expression);
         ArgumentNullException.ThrowIfNull(job);
 
-        registry.Jobs.Add(new JobRegistration(name, expression, _ => job));
+        registry.Jobs.Add(new JobRegistration(name, expression, _ => job, misfirePolicy));
     }
 
-    public void UseJob(string expression, Func<IServiceProvider, ISchedulerJob> factory, string? name = null)
+    public void UseJob(string expression, Func<IServiceProvider, ISchedulerJob> factory, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp)
     {
         ValidateCronExpression(expression);
         ArgumentNullException.ThrowIfNull(factory);
 
-        registry.Jobs.Add(new JobRegistration(name, expression, factory));
+        registry.Jobs.Add(new JobRegistration(name, expression, factory, misfirePolicy));
     }
 
     private static void ValidateCronExpression(string expression)

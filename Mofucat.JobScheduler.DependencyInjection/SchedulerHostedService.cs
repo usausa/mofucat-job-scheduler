@@ -27,7 +27,7 @@ public sealed class SchedulerHostedService : IHostedService
     {
         foreach (var registration in registry.Jobs)
         {
-            scheduler.AddJob(registration.CronExpression, registration.Factory(serviceProvider), registration.Name);
+            scheduler.AddJob(registration.CronExpression, registration.Factory(serviceProvider), registration.Name, registration.MisfirePolicy);
         }
 
         errorHandler = (_, arguments) => log.ErrorSchedulerJobFailed(arguments.Exception, arguments.JobName);

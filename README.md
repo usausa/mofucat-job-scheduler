@@ -49,6 +49,38 @@ builder.Services.AddJobSchedulerService(static options =>
 builder.Build().Run();
 ```
 
+## Misfire policy
+
+When the scheduler wakes up late, a job whose scheduled time has already passed is considered a *misfire*. The `MisfirePolicy` enum controls how missed occurrences are handled.
+
+| Policy | Behavior |
+|---|---|
+| `CatchUp` (default) | Replays every missed slot back-to-back (a per-minute job delayed by an hour fires ~60 times). |
+| `Skip` | Fires once at wake-up, then resumes from the current time; missed slots are discarded. |
+
+### Direct scheduler usage
+
+```csharp
+// CatchUp is the default; missed occurrences are replayed in order.
+scheduler.AddJob("*/1 * * * *", new SampleJob(), "catch-up-job");
+
+// Skip past slots and resume from the current time.
+scheduler.AddJob("*/1 * * * *", new SampleJob(), "skip-job", MisfirePolicy.Skip);
+```
+
+### Dependency injection
+
+```csharp
+builder.Services.AddJobSchedulerService(static options =>
+{
+    // CatchUp (default)
+    options.UseScopedJob<SampleJob>("*/1 * * * *", name: "catch-up-job");
+
+    // Skip
+    options.UseScopedJob<SampleJob>("*/1 * * * *", name: "skip-job", misfirePolicy: MisfirePolicy.Skip);
+});
+```
+
 ## Dynamic job management
 
 Jobs can be added and removed while the scheduler is running:

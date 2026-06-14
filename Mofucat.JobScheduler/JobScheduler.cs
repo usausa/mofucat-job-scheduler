@@ -180,7 +180,7 @@ public sealed class JobScheduler : IAsyncDisposable
     // Job
     //--------------------------------------------------------------------------------
 
-    public IJobHandle AddJob(string cronExpression, ISchedulerJob job, string? name = null)
+    public IJobHandle AddJob(string cronExpression, ISchedulerJob job, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp)
     {
         var expression = CronExpression.Parse(cronExpression);
 
@@ -195,7 +195,7 @@ public sealed class JobScheduler : IAsyncDisposable
             }
 
             var handle = new JobHandle(this, actualName, cronExpression);
-            var scheduledJob = new ScheduledJob(actualName, expression, job, handle);
+            var scheduledJob = new ScheduledJob(actualName, expression, job, handle, misfirePolicy);
             if (isRunning)
             {
                 scheduledJob.Next = expression.GetNextOccurrence(timeProvider.GetUtcNow());
@@ -367,7 +367,9 @@ public sealed class JobScheduler : IAsyncDisposable
                     }
 
                     firingJobs.Add((job, fireTime));
-                    job.Next = job.Cron.GetNextOccurrence(scheduledTime);
+                    job.Next = job.MisfirePolicy == MisfirePolicy.Skip
+                        ? job.Cron.GetNextOccurrence(now)
+                        : job.Cron.GetNextOccurrence(scheduledTime);
                 }
             }
 
@@ -417,11 +419,19 @@ public sealed class JobScheduler : IAsyncDisposable
             return;
         }
 
-        var delayTask = Task.Delay(delay, timeProvider, cancellationToken);
+        using var delayCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var delayTask = Task.Delay(delay, timeProvider, delayCancellation.Token);
         var completedTask = await Task.WhenAny(wakeupTask, delayTask).ConfigureAwait(false);
-        if (ReferenceEquals(completedTask, delayTask) && delayTask.IsCanceled)
+        if (ReferenceEquals(completedTask, delayTask))
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            if (delayTask.IsCanceled)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+        }
+        else
+        {
+            await delayCancellation.CancelAsync().ConfigureAwait(false);
         }
     }
 
@@ -438,7 +448,14 @@ public sealed class JobScheduler : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            JobError?.Invoke(this, new JobErrorEventArgs(job.Name, ex));
+            try
+            {
+                JobError?.Invoke(this, new JobErrorEventArgs(job.Name, ex));
+            }
+            catch
+            {
+                // JobError handler must not fault the job task and StopAsync.
+            }
         }
 #pragma warning restore CA1031
     }

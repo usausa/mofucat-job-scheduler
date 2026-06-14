@@ -8,11 +8,14 @@ public sealed class JobRegistration
 
     public Func<IServiceProvider, ISchedulerJob> Factory { get; }
 
-    public JobRegistration(string? name, string cronExpression, Func<IServiceProvider, ISchedulerJob> factory)
+    public MisfirePolicy MisfirePolicy { get; }
+
+    public JobRegistration(string? name, string cronExpression, Func<IServiceProvider, ISchedulerJob> factory, MisfirePolicy misfirePolicy)
     {
         Name = name;
         CronExpression = cronExpression;
         Factory = factory;
+        MisfirePolicy = misfirePolicy;
     }
 }
 

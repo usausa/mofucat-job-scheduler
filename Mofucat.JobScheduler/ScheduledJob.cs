@@ -10,13 +10,16 @@ internal sealed class ScheduledJob
 
     public JobHandle Handle { get; }
 
+    public MisfirePolicy MisfirePolicy { get; }
+
     public DateTimeOffset? Next { get; set; }
 
-    public ScheduledJob(string name, CronExpression cron, ISchedulerJob job, JobHandle handle)
+    public ScheduledJob(string name, CronExpression cron, ISchedulerJob job, JobHandle handle, MisfirePolicy misfirePolicy)
     {
         Name = name;
         Cron = cron;
         Job = job;
         Handle = handle;
+        MisfirePolicy = misfirePolicy;
     }
 }
