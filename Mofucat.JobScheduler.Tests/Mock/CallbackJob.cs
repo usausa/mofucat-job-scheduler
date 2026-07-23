@@ -20,8 +20,8 @@ public sealed class CallbackJob : ISchedulerJob
         return ValueTask.CompletedTask;
     }
 
-    public async Task WaitForExecutionAsync(CancellationToken cancellationToken)
+    public Task WaitForExecutionAsync(CancellationToken cancellationToken)
     {
-        await completionSource.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return completionSource.Task.WaitAsync(cancellationToken);
     }
 }
