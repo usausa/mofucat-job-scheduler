@@ -276,4 +276,62 @@ public sealed class CronExpressionTest
 
         Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 10, TimeSpan.Zero), next);
     }
+
+    [Fact]
+    public void ParseWhenSecondStepExceedsRangeThenMatchesOnlyStartWithoutHanging()
+    {
+        var expression = CronExpression.Parse("58/2147483647 * * * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 58, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void ParseWhenSecondWildcardStepExceedsRangeThenMatchesOnlyMinimumWithoutHanging()
+    {
+        var expression = CronExpression.Parse("*/2147483647 * * * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 8, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void ParseWhenMinuteStepExceedsRangeThenMatchesOnlyStartWithoutHanging()
+    {
+        var expression = CronExpression.Parse("59/2147483647 * * * *");
+        var from = new DateTimeOffset(2026, 4, 26, 10, 7, 30, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 59, 0, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void ParseWhenExpressionUsesTabAndNewlineSeparatorsThenParsesSuccessfully()
+    {
+        var expression = CronExpression.Parse("*/10\t*\t*\r\n* *\t*");
+        var from = new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero);
+
+        var next = expression.GetNextOccurrence(from);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 10, TimeSpan.Zero), next);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWhenDayOfWeekIsSevenThenTreatedAsSunday()
+    {
+        var expressionSeven = CronExpression.Parse("0 12 * * 7");
+        var expressionZero = CronExpression.Parse("0 12 * * 0");
+        var from = new DateTimeOffset(2026, 4, 13, 12, 0, 0, TimeSpan.Zero);
+
+        var nextSeven = expressionSeven.GetNextOccurrence(from);
+        var nextZero = expressionZero.GetNextOccurrence(from);
+
+        Assert.Equal(nextZero, nextSeven);
+        Assert.Equal(new DateTimeOffset(2026, 4, 19, 12, 0, 0, TimeSpan.Zero), nextSeven);
+    }
 }

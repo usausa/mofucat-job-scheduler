@@ -79,7 +79,7 @@ public sealed class CronExpression
                 (uint)ParseFieldMask64(span[ranges[1]], 0, 23, "hour"),
                 (uint)ParseFieldMask64(span[ranges[2]], 1, 31, "day-of-month"),
                 (ushort)ParseFieldMask64(span[ranges[3]], 1, 12, "month"),
-                (byte)ParseFieldMask64(span[ranges[4]], 0, 6, "day-of-week"),
+                (byte)NormalizeDayOfWeek(ParseFieldMask64(span[ranges[4]], 0, 7, "day-of-week")),
                 GetFlags(span[ranges[2]], span[ranges[4]]));
         }
         if (rangeCount == 6)
@@ -92,7 +92,7 @@ public sealed class CronExpression
                 (uint)ParseFieldMask64(span[ranges[2]], 0, 23, "hour"),
                 (uint)ParseFieldMask64(span[ranges[3]], 1, 31, "day-of-month"),
                 (ushort)ParseFieldMask64(span[ranges[4]], 1, 12, "month"),
-                (byte)ParseFieldMask64(span[ranges[5]], 0, 6, "day-of-week"),
+                (byte)NormalizeDayOfWeek(ParseFieldMask64(span[ranges[5]], 0, 7, "day-of-week")),
                 GetFlags(span[ranges[3]], span[ranges[5]]));
         }
 
@@ -435,7 +435,7 @@ public sealed class CronExpression
         var index = 0;
         while ((index < expression.Length) && (count < ranges.Length))
         {
-            while ((index < expression.Length) && (expression[index] == ' '))
+            while ((index < expression.Length) && Char.IsWhiteSpace(expression[index]))
             {
                 index++;
             }
@@ -446,7 +446,7 @@ public sealed class CronExpression
             }
 
             var start = index;
-            while ((index < expression.Length) && (expression[index] != ' '))
+            while ((index < expression.Length) && !Char.IsWhiteSpace(expression[index]))
             {
                 index++;
             }
@@ -456,7 +456,7 @@ public sealed class CronExpression
 
         while (index < expression.Length)
         {
-            if (expression[index] != ' ')
+            if (!Char.IsWhiteSpace(expression[index]))
             {
                 return count + 1;
             }
@@ -564,6 +564,11 @@ public sealed class CronExpression
             for (var value = start; value <= end; value += step)
             {
                 result |= 1UL << value;
+
+                if (value > end - step)
+                {
+                    break;
+                }
             }
 
             if (tokenEnd == field.Length)
@@ -584,6 +589,11 @@ public sealed class CronExpression
         for (var i = start; i <= end; i += step)
         {
             result |= 1UL << i;
+
+            if (i > end - step)
+            {
+                break;
+            }
         }
 
         return result;
@@ -650,6 +660,17 @@ public sealed class CronExpression
     }
 
     private static bool IsWildcard(ReadOnlySpan<char> value) => (value.Length == 1) && (value[0] == '*');
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static ulong NormalizeDayOfWeek(ulong mask)
+    {
+        if ((mask & (1UL << 7)) != 0)
+        {
+            mask = (mask & ~(1UL << 7)) | 1UL;
+        }
+
+        return mask;
+    }
 
     //--------------------------------------------------------------------------------
     // Date helper

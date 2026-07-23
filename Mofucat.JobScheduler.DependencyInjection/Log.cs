@@ -12,6 +12,9 @@ internal static partial class Log
     [LoggerMessage(Level = LogLevel.Information, Message = "Scheduler stopped.")]
     public static partial void InfoSchedulerStopped(this ILogger logger);
 
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Scheduler stop timeout.")]
+    public static partial void WarnSchedulerStopTimeout(this ILogger logger);
+
     [LoggerMessage(Level = LogLevel.Error, Message = "Scheduler job failed. jobName=[{jobName}]")]
     public static partial void ErrorSchedulerJobFailed(this ILogger logger, Exception exception, string? jobName);
 }

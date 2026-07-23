@@ -15,6 +15,8 @@ public sealed class SchedulerHostedService : IHostedService
 
     private EventHandler<JobErrorEventArgs>? errorHandler;
 
+    private bool registered;
+
     public SchedulerHostedService(ILogger<SchedulerHostedService> log, IServiceProvider serviceProvider, JobScheduler scheduler, SchedulerRegistry registry)
     {
         this.log = log;
@@ -25,13 +27,21 @@ public sealed class SchedulerHostedService : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        foreach (var registration in registry.Jobs)
+        if (!registered)
         {
-            scheduler.AddJob(registration.CronExpression, registration.Factory(serviceProvider), registration.Name, registration.MisfirePolicy);
+            foreach (var registration in registry.Jobs)
+            {
+                scheduler.AddJob(registration.CronExpression, registration.Factory(serviceProvider), registration.Name, registration.MisfirePolicy, registration.MaxCatchUp);
+            }
+
+            registered = true;
         }
 
-        errorHandler = (_, arguments) => log.ErrorSchedulerJobFailed(arguments.Exception, arguments.JobName);
-        scheduler.JobError += errorHandler;
+        if (errorHandler is null)
+        {
+            errorHandler = (_, arguments) => log.ErrorSchedulerJobFailed(arguments.Exception, arguments.JobName);
+            scheduler.JobError += errorHandler;
+        }
 
         await scheduler.StartAsync().ConfigureAwait(false);
 
@@ -40,7 +50,7 @@ public sealed class SchedulerHostedService : IHostedService
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        await scheduler.StopAsync().ConfigureAwait(false);
+        var stopped = await scheduler.StopAsync(cancellationToken).ConfigureAwait(false);
 
         if (errorHandler is not null)
         {
@@ -48,6 +58,13 @@ public sealed class SchedulerHostedService : IHostedService
             errorHandler = null;
         }
 
-        log.InfoSchedulerStopped();
+        if (stopped)
+        {
+            log.InfoSchedulerStopped();
+        }
+        else
+        {
+            log.WarnSchedulerStopTimeout();
+        }
     }
 }

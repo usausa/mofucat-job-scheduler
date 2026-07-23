@@ -87,8 +87,8 @@ public sealed class JobScheduler : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        // Dispose asynchronously after the execution loop has been stopped.
-        await StopAsync().ConfigureAwait(false);
+        // Dispose asynchronously after the execution loop has been stopped, without a deadline.
+        _ = await StopAsync(CancellationToken.None).ConfigureAwait(false);
         lock (sync)
         {
             disposed = true;
@@ -128,23 +128,24 @@ public sealed class JobScheduler : IAsyncDisposable
         return Task.CompletedTask;
     }
 
-    public async Task StopAsync()
+    // Returns true when the scheduler stopped completely, false when waiting was abandoned because
+    // cancellationToken was signaled (for example a host shutdown deadline). Even when false is
+    // returned the scheduler is marked stopped and its jobs have been signaled to cancel.
+    public async Task<bool> StopAsync(CancellationToken cancellationToken = default)
     {
         CancellationTokenSource? currentCancellationTokenSource;
         Task? currentLoopTask;
-        Task[] currentRunningTasks;
 
         lock (sync)
         {
             if (!isRunning)
             {
-                return;
+                return true;
             }
 
             isRunning = false;
             currentCancellationTokenSource = cancellationTokenSource;
             currentLoopTask = loopTask;
-            currentRunningTasks = runningTasks.ToArray();
             cancellationTokenSource = null;
             loopTask = null;
 
@@ -160,7 +161,11 @@ public sealed class JobScheduler : IAsyncDisposable
         {
             try
             {
-                await currentLoopTask.ConfigureAwait(false);
+                await currentLoopTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!currentLoopTask.IsCompleted)
+            {
+                return false;
             }
             catch (OperationCanceledException)
             {
@@ -168,20 +173,38 @@ public sealed class JobScheduler : IAsyncDisposable
             }
         }
 
+        Task[] currentRunningTasks;
+        lock (sync)
+        {
+            currentRunningTasks = runningTasks.ToArray();
+        }
+
         if (currentRunningTasks.Length > 0)
         {
-            await Task.WhenAll(currentRunningTasks).ConfigureAwait(false);
+            var runningTask = Task.WhenAll(currentRunningTasks);
+            try
+            {
+                await runningTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!runningTask.IsCompleted)
+            {
+                return false;
+            }
         }
 
         currentCancellationTokenSource?.Dispose();
+
+        return true;
     }
 
     //--------------------------------------------------------------------------------
     // Job
     //--------------------------------------------------------------------------------
 
-    public IJobHandle AddJob(string cronExpression, ISchedulerJob job, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp)
+    public IJobHandle AddJob(string cronExpression, ISchedulerJob job, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxCatchUp);
+
         var expression = CronExpression.Parse(cronExpression);
 
         lock (sync)
@@ -195,7 +218,7 @@ public sealed class JobScheduler : IAsyncDisposable
             }
 
             var handle = new JobHandle(this, actualName, cronExpression);
-            var scheduledJob = new ScheduledJob(actualName, expression, job, handle, misfirePolicy);
+            var scheduledJob = new ScheduledJob(actualName, expression, job, handle, misfirePolicy, maxCatchUp);
             if (isRunning)
             {
                 scheduledJob.Next = expression.GetNextOccurrence(timeProvider.GetUtcNow());
@@ -287,6 +310,7 @@ public sealed class JobScheduler : IAsyncDisposable
 
         while (!cancellationToken.IsCancellationRequested)
         {
+            // Find next execution time
             DateTimeOffset? nextTime;
             Task wakeupTask;
             lock (sync)
@@ -308,9 +332,9 @@ public sealed class JobScheduler : IAsyncDisposable
                 wakeupTask = wakeup.Task;
             }
 
+            // Wait wakeup or next execution time
             if (nextTime is null)
             {
-                // Wait
                 try
                 {
                     await WaitAsync(wakeupTask, Timeout.InfiniteTimeSpan, cancellationToken).ConfigureAwait(false);
@@ -323,6 +347,7 @@ public sealed class JobScheduler : IAsyncDisposable
                 continue;
             }
 
+            // Compute next execution delay
             var now = timeProvider.GetUtcNow();
             var delay = nextTime.Value - now;
             if (delay > MaxSingleWait)
@@ -330,7 +355,7 @@ public sealed class JobScheduler : IAsyncDisposable
                 delay = MaxSingleWait;
             }
 
-            // Wait
+            // Wait until the scheduled time
             if (delay > TimeSpan.Zero)
             {
                 try
@@ -342,6 +367,7 @@ public sealed class JobScheduler : IAsyncDisposable
                     break;
                 }
 
+                // Recompute now and check if the next execution time has arrived
                 now = timeProvider.GetUtcNow();
                 if (now < nextTime.Value)
                 {
@@ -349,32 +375,65 @@ public sealed class JobScheduler : IAsyncDisposable
                 }
             }
 
+            // Gather jobs to fire and update their next execution time
             firingJobs.Clear();
             lock (sync)
             {
                 foreach (var job in jobs)
                 {
+                    // Skip future jobs
                     if ((job.Next is null) || (job.Next > now))
                     {
                         continue;
                     }
 
+                    // Compute the next execution time for the job
                     var scheduledTime = job.Next.Value;
-                    var fireTime = scheduledTime;
-                    if (scheduledTime < now)
-                    {
-                        fireTime = now;
-                    }
+                    var late = scheduledTime < now;
+                    var fireTime = late ? now : scheduledTime;
 
                     firingJobs.Add((job, fireTime));
-                    job.Next = job.MisfirePolicy == MisfirePolicy.Skip
-                        ? job.Cron.GetNextOccurrence(now)
-                        : job.Cron.GetNextOccurrence(scheduledTime);
+
+                    // Update the next execution time
+                    if (job.MisfirePolicy == MisfirePolicy.Skip)
+                    {
+                        // Backlog is skipped
+                        job.CatchUpCount = 0;
+                        job.Next = job.Cron.GetNextOccurrence(now);
+                    }
+                    else if (!late)
+                    {
+                        // Normal firing
+                        job.CatchUpCount = 0;
+                        job.Next = job.Cron.GetNextOccurrence(scheduledTime);
+                    }
+                    else
+                    {
+                        // CatchUp firing
+                        job.CatchUpCount++;
+                        if ((job.MaxCatchUp > 0) && (job.CatchUpCount >= job.MaxCatchUp))
+                        {
+                            // Limit reached: drop the remaining backlog
+                            job.CatchUpCount = 0;
+                            job.Next = job.Cron.GetNextOccurrence(now);
+                        }
+                        else
+                        {
+                            // Below the limit: advance from the scheduled time
+                            job.Next = job.Cron.GetNextOccurrence(scheduledTime);
+                        }
+                    }
                 }
             }
 
+            // Fire jobs
             foreach (var (job, fireTime) in firingJobs)
             {
+                if (job.Handle.IsRemoved)
+                {
+                    continue;
+                }
+
                 TrackTask(FireJobAsync(job, fireTime, cancellationToken));
             }
         }
@@ -442,7 +501,7 @@ public sealed class JobScheduler : IAsyncDisposable
         {
             await job.Job.ExecuteAsync(fireTime, cancellationToken).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             // Ignore
         }

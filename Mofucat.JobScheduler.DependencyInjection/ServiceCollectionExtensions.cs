@@ -12,17 +12,12 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddJobScheduler(this IServiceCollection services)
     {
-        ArgumentNullException.ThrowIfNull(services);
-
         AddCoreServices(services);
         return services;
     }
 
     public static IServiceCollection AddJobSchedulerService(this IServiceCollection services, Action<JobSchedulerOptions> options)
     {
-        ArgumentNullException.ThrowIfNull(services);
-        ArgumentNullException.ThrowIfNull(options);
-
         AddCoreServices(services);
         AddHostedServiceServices(services);
 
