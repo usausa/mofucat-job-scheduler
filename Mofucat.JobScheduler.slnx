@@ -18,7 +18,7 @@
     <Project Path="Mofucat.JobScheduler/Mofucat.JobScheduler.csproj" />
   </Folder>
   <Folder Name="/Example/">
-    <Project Path="Example/Example.csproj" />
+    <Project Path="Example/Example.csproj" DefaultStartup="true" />
   </Folder>
   <Project Path="Mofucat.JobScheduler.Tests/Mofucat.JobScheduler.Tests.csproj" />
 </Solution>
