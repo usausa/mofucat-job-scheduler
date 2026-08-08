@@ -19,6 +19,7 @@ public sealed class JobScheduler : IAsyncDisposable
     private TaskCompletionSource<bool> wakeup = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private CancellationTokenSource? cancellationTokenSource;
     private Task? loopTask;
+    private Task? stoppingLoopTask;
     private bool isRunning;
 
     private bool disposed;
@@ -110,6 +111,12 @@ public sealed class JobScheduler : IAsyncDisposable
                 return Task.CompletedTask;
             }
 
+            if (stoppingLoopTask is { IsCompleted: false })
+            {
+                throw new InvalidOperationException("Previous loop is still stopping.");
+            }
+
+            stoppingLoopTask = null;
             isRunning = true;
             var currentCancellationTokenSource = new CancellationTokenSource();
             cancellationTokenSource = currentCancellationTokenSource;
@@ -148,6 +155,7 @@ public sealed class JobScheduler : IAsyncDisposable
             currentLoopTask = loopTask;
             cancellationTokenSource = null;
             loopTask = null;
+            stoppingLoopTask = currentLoopTask;
 
             SignalWakeupUnsafe();
         }
@@ -157,44 +165,49 @@ public sealed class JobScheduler : IAsyncDisposable
             await currentCancellationTokenSource.CancelAsync().ConfigureAwait(false);
         }
 
-        if (currentLoopTask is not null)
+        try
         {
-            try
+            if (currentLoopTask is not null)
             {
-                await currentLoopTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await currentLoopTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!currentLoopTask.IsCompleted)
+                {
+                    return false;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Ignore
+                }
             }
-            catch (OperationCanceledException) when (!currentLoopTask.IsCompleted)
-            {
-                return false;
-            }
-            catch (OperationCanceledException)
-            {
-                // Ignore
-            }
-        }
 
-        Task[] currentRunningTasks;
-        lock (sync)
+            Task[] currentRunningTasks;
+            lock (sync)
+            {
+                currentRunningTasks = runningTasks.ToArray();
+            }
+
+            if (currentRunningTasks.Length > 0)
+            {
+                var runningTask = Task.WhenAll(currentRunningTasks);
+                try
+                {
+                    await runningTask.WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!runningTask.IsCompleted)
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        finally
         {
-            currentRunningTasks = runningTasks.ToArray();
+            currentCancellationTokenSource?.Dispose();
         }
-
-        if (currentRunningTasks.Length > 0)
-        {
-            var runningTask = Task.WhenAll(currentRunningTasks);
-            try
-            {
-                await runningTask.WaitAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!runningTask.IsCompleted)
-            {
-                return false;
-            }
-        }
-
-        currentCancellationTokenSource?.Dispose();
-
-        return true;
     }
 
     //--------------------------------------------------------------------------------
