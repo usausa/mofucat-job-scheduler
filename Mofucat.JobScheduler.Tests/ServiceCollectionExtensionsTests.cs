@@ -40,7 +40,7 @@ public sealed class ServiceCollectionExtensionsTests
 
         services.AddJobSchedulerService(static options =>
         {
-            options.UseJob("*/1 * * * *", new Mock.NopJob(), name: "skip-job", misfirePolicy: MisfirePolicy.Skip);
+            options.UseJob("*/1 * * * *", new NopJob(), name: "skip-job", misfirePolicy: MisfirePolicy.Skip);
         });
 
         var provider = services.BuildServiceProvider();
