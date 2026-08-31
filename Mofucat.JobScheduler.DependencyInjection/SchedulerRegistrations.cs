@@ -22,7 +22,9 @@ public sealed class JobRegistration
     }
 }
 
+#pragma warning disable CA1002
 public sealed class SchedulerRegistry
 {
     public List<JobRegistration> Jobs { get; } = [];
 }
+#pragma warning restore CA1002

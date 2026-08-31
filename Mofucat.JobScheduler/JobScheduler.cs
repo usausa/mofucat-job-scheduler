@@ -2,6 +2,7 @@ namespace Mofucat.JobScheduler;
 
 using System.Globalization;
 
+#pragma warning disable CA1724
 public sealed class JobScheduler : IAsyncDisposable
 {
     public event EventHandler<JobErrorEventArgs>? JobError;
@@ -595,3 +596,4 @@ public sealed class JobScheduler : IAsyncDisposable
         }
     }
 }
+#pragma warning restore CA1724
