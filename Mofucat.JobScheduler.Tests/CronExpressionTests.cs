@@ -1,6 +1,6 @@
 namespace Mofucat.JobScheduler.Tests;
 
-public sealed class CronExpressionTest
+public sealed class CronExpressionTests
 {
     [Theory]
     [InlineData("*/5 * * * * *")]
