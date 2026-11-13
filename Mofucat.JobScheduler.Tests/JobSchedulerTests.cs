@@ -97,18 +97,19 @@ public sealed class JobSchedulerTests
 
         // Act
         var removedCount = scheduler.RemoveAllJobs();
+        Assert.Empty(scheduler.JobNames);
+        var synchronizationJob = new RecordingJob();
+        scheduler.AddJob("*/10 * * * * *", synchronizationJob, "synchronization");
         await timeProvider.AdvanceAsync(TimeSpan.FromSeconds(10), cancellationTokenSource.Token);
-        await Task.Delay(50, cancellationTokenSource.Token);
+        await synchronizationJob.WaitForExecutionAsync(cancellationTokenSource.Token);
+        Assert.True(await scheduler.StopAsync(cancellationTokenSource.Token));
 
         // Assert
         Assert.Equal(2, removedCount);
         Assert.True(firstHandle.IsRemoved);
         Assert.True(secondHandle.IsRemoved);
-        Assert.Empty(scheduler.JobNames);
         Assert.False(firstJob.HasExecuted);
         Assert.False(secondJob.HasExecuted);
-
-        await scheduler.StopAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -153,15 +154,16 @@ public sealed class JobSchedulerTests
 
         // Act
         var removed = handle.Remove();
+        var synchronizationJob = new RecordingJob();
+        scheduler.AddJob("*/10 * * * * *", synchronizationJob, "synchronization");
         await timeProvider.AdvanceAsync(TimeSpan.FromSeconds(10), cancellationTokenSource.Token);
-        await Task.Delay(50, cancellationTokenSource.Token);
+        await synchronizationJob.WaitForExecutionAsync(cancellationTokenSource.Token);
+        Assert.True(await scheduler.StopAsync(cancellationTokenSource.Token));
 
         // Assert
         Assert.True(removed);
         Assert.True(handle.IsRemoved);
         Assert.False(job.HasExecuted);
-
-        await scheduler.StopAsync(TestContext.Current.CancellationToken);
     }
 
     [Fact]
