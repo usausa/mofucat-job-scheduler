@@ -12,13 +12,16 @@ public sealed class JobRegistration
 
     public int MaxCatchUp { get; }
 
-    public JobRegistration(string? name, string cronExpression, Func<IServiceProvider, ISchedulerJob> factory, MisfirePolicy misfirePolicy, int maxCatchUp = 0)
+    public TimeZoneInfo? TimeZone { get; }
+
+    public JobRegistration(string? name, string cronExpression, Func<IServiceProvider, ISchedulerJob> factory, MisfirePolicy misfirePolicy, int maxCatchUp = 0, TimeZoneInfo? timeZone = null)
     {
         Name = name;
         CronExpression = cronExpression;
         Factory = factory;
         MisfirePolicy = misfirePolicy;
         MaxCatchUp = maxCatchUp;
+        TimeZone = timeZone;
     }
 }
 

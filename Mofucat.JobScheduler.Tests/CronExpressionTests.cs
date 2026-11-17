@@ -1,5 +1,7 @@
 namespace Mofucat.JobScheduler.Tests;
 
+using Mofucat.JobScheduler.Tests.Mock;
+
 public sealed class CronExpressionTests
 {
     [Theory]
@@ -333,5 +335,157 @@ public sealed class CronExpressionTests
 
         Assert.Equal(nextZero, nextSeven);
         Assert.Equal(new DateTimeOffset(2026, 4, 19, 12, 0, 0, TimeSpan.Zero), nextSeven);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWithTimeZoneThenReturnsLocalTimeOfTimeZone()
+    {
+        AssertOccurrences(
+            TestTimeZones.Tokyo,
+            "0 3 * * *",
+            "2026-11-17T17:00:00+00:00",
+            "2026-11-18T03:00:00+09:00",
+            "2026-11-19T03:00:00+09:00");
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWithTimeZoneWhenDaylightSavingTimeStartsThenKeepsLocalTime()
+    {
+        AssertOccurrences(
+            TestTimeZones.Eastern,
+            "0 3 * * *",
+            "2026-03-07T03:00:00-05:00",
+            "2026-03-08T03:00:00-04:00",
+            "2026-03-09T03:00:00-04:00");
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWithTimeZoneWhenDaylightSavingTimeEndsThenKeepsLocalTime()
+    {
+        AssertOccurrences(
+            TestTimeZones.Eastern,
+            "0 3 * * *",
+            "2026-10-31T03:00:00-04:00",
+            "2026-11-01T03:00:00-05:00",
+            "2026-11-02T03:00:00-05:00");
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWithTimeZoneWhenTimeIsSkippedThenOccursWhenClockJumps()
+    {
+        AssertOccurrences(
+            TestTimeZones.Eastern,
+            "30 2 * * *",
+            "2026-03-07T03:00:00-05:00",
+            "2026-03-08T03:00:00-04:00",
+            "2026-03-09T02:30:00-04:00");
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWithTimeZoneWhenSkippedTimeHasSeveralOccurrencesThenOccursOnce()
+    {
+        AssertOccurrences(
+            TestTimeZones.Eastern,
+            "*/15 2 * * *",
+            "2026-03-08T01:50:00-05:00",
+            "2026-03-08T03:00:00-04:00",
+            "2026-03-09T02:00:00-04:00");
+    }
+
+    [Theory]
+    [InlineData("30 1 * * *")]
+    [InlineData("0 30 1 * * *")]
+    public void GetNextOccurrenceWithTimeZoneWhenFixedTimeIsRepeatedThenOccursOnlyInFirstPass(string expression)
+    {
+        AssertOccurrences(
+            TestTimeZones.Eastern,
+            expression,
+            "2026-11-01T00:00:00-04:00",
+            "2026-11-01T01:30:00-04:00",
+            "2026-11-02T01:30:00-05:00");
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWithTimeZoneWhenListTimeIsRepeatedThenOccursOnlyInFirstPass()
+    {
+        AssertOccurrences(
+            TestTimeZones.Eastern,
+            "0,30 1 * * *",
+            "2026-11-01T00:00:00-04:00",
+            "2026-11-01T01:00:00-04:00",
+            "2026-11-01T01:30:00-04:00",
+            "2026-11-02T01:00:00-05:00");
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWithTimeZoneWhenMinuteStepIsRepeatedThenOccursInBothPasses()
+    {
+        AssertOccurrences(
+            TestTimeZones.Eastern,
+            "*/30 * * * *",
+            "2026-11-01T00:45:00-04:00",
+            "2026-11-01T01:00:00-04:00",
+            "2026-11-01T01:30:00-04:00",
+            "2026-11-01T01:00:00-05:00",
+            "2026-11-01T01:30:00-05:00",
+            "2026-11-01T02:00:00-05:00");
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWithTimeZoneWhenHourRangeIsRepeatedThenOccursInBothPasses()
+    {
+        AssertOccurrences(
+            TestTimeZones.Eastern,
+            "0 1-2 * * *",
+            "2026-11-01T00:30:00-04:00",
+            "2026-11-01T01:00:00-04:00",
+            "2026-11-01T01:00:00-05:00",
+            "2026-11-01T02:00:00-05:00");
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWithTimeZoneWhenSecondStepIsRepeatedThenOccursInBothPasses()
+    {
+        AssertOccurrences(
+            TestTimeZones.Eastern,
+            "*/30 30 1 * * *",
+            "2026-11-01T01:29:59-04:00",
+            "2026-11-01T01:30:00-04:00",
+            "2026-11-01T01:30:30-04:00",
+            "2026-11-01T01:30:00-05:00",
+            "2026-11-01T01:30:30-05:00",
+            "2026-11-02T01:30:00-05:00");
+    }
+
+    [Theory]
+    [InlineData("30 1 * * *", "2026-11-02T01:30:00-05:00")]
+    [InlineData("*/30 * * * *", "2026-11-01T01:30:00-05:00")]
+    public void GetNextOccurrenceWithTimeZoneWhenStartingInSecondPassThenDoesNotReturnToFirstPass(string expression, string expected)
+    {
+        AssertOccurrences(TestTimeZones.Eastern, expression, "2026-11-01T01:15:00-05:00", expected);
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWithTimeZoneWhenTimeZoneIsNullThenThrowsArgumentNullException()
+    {
+        var expression = CronExpression.Parse("0 3 * * *");
+
+        Assert.Throws<ArgumentNullException>(() => expression.GetNextOccurrence(DateTimeOffset.UnixEpoch, null!));
+    }
+
+    private static void AssertOccurrences(TimeZoneInfo timeZone, string expression, string from, params string[] expected)
+    {
+        var cron = CronExpression.Parse(expression);
+        var current = DateTimeOffset.Parse(from, CultureInfo.InvariantCulture);
+        var actual = new List<string>();
+        for (var i = 0; i < expected.Length; i++)
+        {
+            var next = cron.GetNextOccurrence(current, timeZone);
+            Assert.NotNull(next);
+            current = next.Value;
+            actual.Add(current.ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture));
+        }
+
+        Assert.Equal(expected, actual);
     }
 }

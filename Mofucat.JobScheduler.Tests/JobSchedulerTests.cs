@@ -620,6 +620,89 @@ public sealed class JobSchedulerTests
             () => scheduler.AddJob("*/1 * * * *", new NopJob(), "sample", MisfirePolicy.CatchUp, -1));
     }
 
+    [Fact]
+    public async Task StartWhenTimeZoneIsNotSpecifiedThenUsesLocalTimeZoneOfTimeProvider()
+    {
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 11, 17, 17, 59, 30, TimeSpan.Zero), TestTimeZones.Tokyo);
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var job = new RecordingJob();
+        var handle = scheduler.AddJob("0 3 * * *", job, "daily");
+
+        await scheduler.StartAsync();
+        var nextExecutionTime = handle.NextExecutionTime;
+        await timeProvider.AdvanceAsync(TimeSpan.FromSeconds(30), cancellationTokenSource.Token);
+        var executionTime = await job.WaitForExecutionAsync(cancellationTokenSource.Token);
+
+        Assert.Equal(new DateTimeOffset(2026, 11, 17, 18, 0, 0, TimeSpan.Zero), nextExecutionTime);
+        Assert.Equal(TimeSpan.FromHours(9), nextExecutionTime?.Offset);
+        Assert.Equal(new DateTimeOffset(2026, 11, 18, 3, 0, 0, TimeSpan.FromHours(9)), executionTime);
+        Assert.Equal(TimeSpan.FromHours(9), executionTime.Offset);
+
+        await scheduler.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task AddJobWhenTimeZoneIsSpecifiedThenOverridesLocalTimeZone()
+    {
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 11, 17, 17, 59, 30, TimeSpan.Zero), TestTimeZones.Tokyo);
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var handle = scheduler.AddJob("0 3 * * *", new NopJob(), "daily", timeZone: TimeZoneInfo.Utc);
+
+        await scheduler.StartAsync();
+
+        Assert.Equal(new DateTimeOffset(2026, 11, 18, 3, 0, 0, TimeSpan.Zero), handle.NextExecutionTime);
+        Assert.Equal(TimeSpan.Zero, handle.NextExecutionTime?.Offset);
+
+        await scheduler.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task MisfirePolicyCatchUpWhenJobRunsLateThenExecutionTimeIsInTimeZone()
+    {
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 30, TimeSpan.Zero), TestTimeZones.Tokyo);
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var job = new RecordingJob();
+        scheduler.AddJob("*/1 * * * *", job, "sample");
+        await scheduler.StartAsync();
+
+        await timeProvider.AdvanceAsync(TimeSpan.FromMinutes(5), cancellationTokenSource.Token);
+        var executionTime = await job.WaitForExecutionAsync(cancellationTokenSource.Token);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 12, 30, TimeSpan.Zero), executionTime);
+        Assert.Equal(TimeSpan.FromHours(9), executionTime.Offset);
+
+        await scheduler.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task StartWhenScheduledTimeIsSkippedByDaylightSavingTimeThenRunsWhenClockJumps()
+    {
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 3, 8, 6, 59, 30, TimeSpan.Zero), TestTimeZones.Eastern);
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var job = new RecordingJob();
+        var handle = scheduler.AddJob("30 2 * * *", job, "daily");
+        await scheduler.StartAsync();
+
+        await timeProvider.AdvanceAsync(TimeSpan.FromSeconds(30), cancellationTokenSource.Token);
+        var executionTime = await job.WaitForExecutionAsync(cancellationTokenSource.Token);
+
+        Assert.Equal(new DateTimeOffset(2026, 3, 8, 3, 0, 0, TimeSpan.FromHours(-4)), executionTime);
+        Assert.Equal(new DateTimeOffset(2026, 3, 9, 2, 30, 0, TimeSpan.FromHours(-4)), handle.NextExecutionTime);
+
+        await scheduler.StopAsync(TestContext.Current.CancellationToken);
+    }
+
     private static CancellationTokenSource CreateCancellationTokenSource()
     {
         var cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);

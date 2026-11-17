@@ -31,7 +31,7 @@ public sealed class SchedulerHostedService : IHostedService
         {
             foreach (var registration in registry.Jobs)
             {
-                scheduler.AddJob(registration.CronExpression, registration.Factory(serviceProvider), registration.Name, registration.MisfirePolicy, registration.MaxCatchUp);
+                scheduler.AddJob(registration.CronExpression, registration.Factory(serviceProvider), registration.Name, registration.MisfirePolicy, registration.MaxCatchUp, registration.TimeZone);
             }
 
             registered = true;

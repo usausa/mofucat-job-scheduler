@@ -10,6 +10,7 @@ public sealed class CronExpression
     private const byte DayOfMonthRestricted = 0x1;
     // day-of-week is restricted by a non-wildcard value
     private const byte DayOfWeekRestricted = 0x2;
+    private const byte Interval = 0x4;
 
     // Days per month table
     private static ReadOnlySpan<byte> DaysInMonthTable => [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -80,7 +81,7 @@ public sealed class CronExpression
                 (uint)ParseFieldMask64(span[ranges[2]], 1, 31, "day-of-month"),
                 (ushort)ParseFieldMask64(span[ranges[3]], 1, 12, "month"),
                 (byte)NormalizeDayOfWeek(ParseFieldMask64(span[ranges[4]], 0, 7, "day-of-week")),
-                GetFlags(span[ranges[2]], span[ranges[4]]));
+                GetFlags(span[ranges[2]], span[ranges[4]], IsInterval(span[ranges[0]]) || IsInterval(span[ranges[1]])));
         }
         if (rangeCount == 6)
         {
@@ -93,7 +94,7 @@ public sealed class CronExpression
                 (uint)ParseFieldMask64(span[ranges[3]], 1, 31, "day-of-month"),
                 (ushort)ParseFieldMask64(span[ranges[4]], 1, 12, "month"),
                 (byte)NormalizeDayOfWeek(ParseFieldMask64(span[ranges[5]], 0, 7, "day-of-week")),
-                GetFlags(span[ranges[3]], span[ranges[5]]));
+                GetFlags(span[ranges[3]], span[ranges[5]], IsInterval(span[ranges[0]]) || IsInterval(span[ranges[1]]) || IsInterval(span[ranges[2]])));
         }
 
         throw new FormatException($"Cron expression must have 5 or 6 fields. expression=[{expression}]");
@@ -105,6 +106,67 @@ public sealed class CronExpression
 
     public DateTimeOffset? GetNextOccurrence(DateTimeOffset from) =>
         includesSeconds ? GetNextOccurrenceWithSeconds(from) : GetNextOccurrenceWithoutSeconds(from);
+
+    public DateTimeOffset? GetNextOccurrence(DateTimeOffset from, TimeZoneInfo timeZone)
+    {
+        ArgumentNullException.ThrowIfNull(timeZone);
+
+        var local = TimeZoneInfo.ConvertTime(from, timeZone);
+        var time = local.DateTime;
+        var inclusive = false;
+
+        if (timeZone.IsAmbiguousTime(local))
+        {
+            var (earlyOffset, lateOffset) = GetAmbiguousOffsets(timeZone, time);
+            var end = GetTransitionEnd(timeZone, time, true);
+            if (local.Offset == earlyOffset)
+            {
+                var early = FindNextLocal(time, false);
+                if (early < end)
+                {
+                    return new DateTimeOffset(early.Value, earlyOffset);
+                }
+
+                time = end - (earlyOffset - lateOffset);
+                inclusive = true;
+            }
+
+            if ((flags & Interval) != 0)
+            {
+                var late = FindNextLocal(time, inclusive);
+                if (late < end)
+                {
+                    return new DateTimeOffset(late.Value, lateOffset);
+                }
+            }
+
+            time = end;
+            inclusive = true;
+        }
+
+        var next = FindNextLocal(time, inclusive);
+        if (next is null)
+        {
+            return null;
+        }
+
+        var value = next.Value;
+        if (timeZone.IsInvalidTime(value))
+        {
+            var end = GetTransitionEnd(timeZone, value, false);
+            return new DateTimeOffset(end, timeZone.GetUtcOffset(end));
+        }
+
+        if (timeZone.IsAmbiguousTime(value))
+        {
+            return new DateTimeOffset(value, GetAmbiguousOffsets(timeZone, value).Early);
+        }
+
+        return new DateTimeOffset(value, timeZone.GetUtcOffset(value));
+    }
+
+    private DateTime? FindNextLocal(DateTime time, bool inclusive) =>
+        GetNextOccurrence(new DateTimeOffset(inclusive ? time.AddTicks(-1) : time, TimeSpan.Zero))?.DateTime;
 
     private DateTimeOffset? GetNextOccurrenceWithoutSeconds(DateTimeOffset from)
     {
@@ -643,7 +705,7 @@ public sealed class CronExpression
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static byte GetFlags(ReadOnlySpan<char> dayOfMonthField, ReadOnlySpan<char> dayOfWeekField)
+    private static byte GetFlags(ReadOnlySpan<char> dayOfMonthField, ReadOnlySpan<char> dayOfWeekField, bool interval)
     {
         var flags = (byte)0;
         if (!IsWildcard(dayOfMonthField))
@@ -656,10 +718,17 @@ public sealed class CronExpression
             flags |= DayOfWeekRestricted;
         }
 
+        if (interval)
+        {
+            flags |= Interval;
+        }
+
         return flags;
     }
 
     private static bool IsWildcard(ReadOnlySpan<char> value) => (value.Length == 1) && (value[0] == '*');
+
+    private static bool IsInterval(ReadOnlySpan<char> value) => value.IndexOfAny('*', '-', '/') >= 0;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static ulong NormalizeDayOfWeek(ulong mask)
@@ -758,6 +827,24 @@ public sealed class CronExpression
 
         month = nextMonth;
         return true;
+    }
+
+    private static (TimeSpan Early, TimeSpan Late) GetAmbiguousOffsets(TimeZoneInfo timeZone, DateTime time)
+    {
+        var offsets = timeZone.GetAmbiguousTimeOffsets(time);
+        return offsets[0] > offsets[1] ? (offsets[0], offsets[1]) : (offsets[1], offsets[0]);
+    }
+
+    private static DateTime GetTransitionEnd(TimeZoneInfo timeZone, DateTime time, bool ambiguous)
+    {
+        var end = new DateTime(time.Year, time.Month, time.Day, time.Hour, time.Minute, 0, DateTimeKind.Unspecified);
+        do
+        {
+            end = end.AddMinutes(1);
+        }
+        while (ambiguous ? timeZone.IsAmbiguousTime(end) : timeZone.IsInvalidTime(end));
+
+        return end;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

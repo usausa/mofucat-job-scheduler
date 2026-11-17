@@ -28,4 +28,28 @@ public sealed class SchedulerHostedServiceTests
 
         await hostedService.StopAsync(CancellationToken.None);
     }
+
+    [Fact]
+    public async Task StartAsyncWhenJobHasTimeZoneThenSchedulesInThatTimeZone()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<TimeProvider>(new ManualTimeProvider(new DateTimeOffset(2026, 11, 17, 17, 0, 0, TimeSpan.Zero), TestTimeZones.Tokyo));
+        services.AddJobSchedulerService(static options =>
+        {
+            options.UseJob("0 3 * * *", static _ => new NopJob(), "local");
+            options.UseJob("0 3 * * *", static _ => new NopJob(), "utc", timeZone: TimeZoneInfo.Utc);
+        });
+#pragma warning disable CA2007
+        await using var provider = services.BuildServiceProvider();
+#pragma warning restore CA2007
+        var hostedService = provider.GetServices<IHostedService>().OfType<SchedulerHostedService>().Single();
+        var scheduler = provider.GetRequiredService<JobScheduler>();
+
+        await hostedService.StartAsync(CancellationToken.None);
+
+        Assert.Equal(new DateTimeOffset(2026, 11, 18, 3, 0, 0, TimeSpan.FromHours(9)), scheduler.FindJob("local")?.NextExecutionTime);
+        Assert.Equal(new DateTimeOffset(2026, 11, 18, 3, 0, 0, TimeSpan.Zero), scheduler.FindJob("utc")?.NextExecutionTime);
+
+        await hostedService.StopAsync(CancellationToken.None);
+    }
 }

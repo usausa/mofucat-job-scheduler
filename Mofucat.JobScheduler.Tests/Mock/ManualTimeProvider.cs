@@ -1,6 +1,6 @@
 namespace Mofucat.JobScheduler.Tests.Mock;
 
-public sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
+public sealed class ManualTimeProvider(DateTimeOffset start, TimeZoneInfo? localTimeZone = null) : TimeProvider
 {
     private readonly Lock sync = new();
 
@@ -20,7 +20,7 @@ public sealed class ManualTimeProvider(DateTimeOffset start) : TimeProvider
 
     public override long GetTimestamp() => GetUtcNow().Ticks;
 
-    public override TimeZoneInfo LocalTimeZone => TimeZoneInfo.Utc;
+    public override TimeZoneInfo LocalTimeZone { get; } = localTimeZone ?? TimeZoneInfo.Utc;
 
     private bool HasActiveTimer
     {

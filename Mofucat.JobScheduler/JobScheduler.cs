@@ -126,7 +126,7 @@ public sealed class JobScheduler : IAsyncDisposable
             var now = timeProvider.GetUtcNow();
             foreach (var job in jobs)
             {
-                job.Next = job.Cron.GetNextOccurrence(now);
+                job.Next = job.Cron.GetNextOccurrence(now, GetTimeZone(job));
             }
 
             // ReSharper disable once MethodSupportsCancellation
@@ -215,7 +215,7 @@ public sealed class JobScheduler : IAsyncDisposable
     // Job
     //--------------------------------------------------------------------------------
 
-    public IJobHandle AddJob(string cronExpression, ISchedulerJob job, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0)
+    public IJobHandle AddJob(string cronExpression, ISchedulerJob job, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0, TimeZoneInfo? timeZone = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxCatchUp);
 
@@ -232,10 +232,10 @@ public sealed class JobScheduler : IAsyncDisposable
             }
 
             var handle = new JobHandle(this, actualName, cronExpression);
-            var scheduledJob = new ScheduledJob(actualName, expression, job, handle, misfirePolicy, maxCatchUp);
+            var scheduledJob = new ScheduledJob(actualName, expression, job, handle, misfirePolicy, maxCatchUp, timeZone);
             if (isRunning)
             {
-                scheduledJob.Next = expression.GetNextOccurrence(timeProvider.GetUtcNow());
+                scheduledJob.Next = expression.GetNextOccurrence(timeProvider.GetUtcNow(), GetTimeZone(scheduledJob));
             }
 
             jobs.Add(scheduledJob);
@@ -306,6 +306,8 @@ public sealed class JobScheduler : IAsyncDisposable
             return null;
         }
     }
+
+    private TimeZoneInfo GetTimeZone(ScheduledJob job) => job.TimeZone ?? timeProvider.LocalTimeZone;
 
     //--------------------------------------------------------------------------------
     // Execution loop
@@ -402,9 +404,10 @@ public sealed class JobScheduler : IAsyncDisposable
                     }
 
                     // Compute the next execution time for the job
+                    var timeZone = GetTimeZone(job);
                     var scheduledTime = job.Next.Value;
                     var late = scheduledTime < now;
-                    var fireTime = late ? now : scheduledTime;
+                    var fireTime = TimeZoneInfo.ConvertTime(late ? now : scheduledTime, timeZone);
 
                     firingJobs.Add((job, fireTime));
 
@@ -413,13 +416,13 @@ public sealed class JobScheduler : IAsyncDisposable
                     {
                         // Backlog is skipped
                         job.CatchUpCount = 0;
-                        job.Next = job.Cron.GetNextOccurrence(now);
+                        job.Next = job.Cron.GetNextOccurrence(now, timeZone);
                     }
                     else if (!late)
                     {
                         // Normal firing
                         job.CatchUpCount = 0;
-                        job.Next = job.Cron.GetNextOccurrence(scheduledTime);
+                        job.Next = job.Cron.GetNextOccurrence(scheduledTime, timeZone);
                     }
                     else
                     {
@@ -429,12 +432,12 @@ public sealed class JobScheduler : IAsyncDisposable
                         {
                             // Limit reached: drop the remaining backlog
                             job.CatchUpCount = 0;
-                            job.Next = job.Cron.GetNextOccurrence(now);
+                            job.Next = job.Cron.GetNextOccurrence(now, timeZone);
                         }
                         else
                         {
                             // Below the limit: advance from the scheduled time
-                            job.Next = job.Cron.GetNextOccurrence(scheduledTime);
+                            job.Next = job.Cron.GetNextOccurrence(scheduledTime, timeZone);
                         }
                     }
                 }

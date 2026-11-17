@@ -14,11 +14,13 @@ internal sealed class ScheduledJob
 
     public int MaxCatchUp { get; }
 
+    public TimeZoneInfo? TimeZone { get; }
+
     public DateTimeOffset? Next { get; set; }
 
     public int CatchUpCount { get; set; }
 
-    public ScheduledJob(string name, CronExpression cron, ISchedulerJob job, JobHandle handle, MisfirePolicy misfirePolicy, int maxCatchUp)
+    public ScheduledJob(string name, CronExpression cron, ISchedulerJob job, JobHandle handle, MisfirePolicy misfirePolicy, int maxCatchUp, TimeZoneInfo? timeZone)
     {
         Name = name;
         Cron = cron;
@@ -26,5 +28,6 @@ internal sealed class ScheduledJob
         Handle = handle;
         MisfirePolicy = misfirePolicy;
         MaxCatchUp = maxCatchUp;
+        TimeZone = timeZone;
     }
 }

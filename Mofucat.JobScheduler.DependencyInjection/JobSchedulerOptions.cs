@@ -18,7 +18,7 @@ public sealed class JobSchedulerOptions
         this.registry = registry;
     }
 
-    public void UseJob<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(string expression, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0)
+    public void UseJob<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(string expression, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0, TimeZoneInfo? timeZone = null)
         where T : class, ISchedulerJob
     {
         ValidateCronExpression(expression);
@@ -30,21 +30,21 @@ public sealed class JobSchedulerOptions
         }
 
         services.TryAddSingleton<T>();
-        registry.Jobs.Add(new JobRegistration(name, expression, static serviceProvider => serviceProvider.GetRequiredService<T>(), misfirePolicy, maxCatchUp));
+        registry.Jobs.Add(new JobRegistration(name, expression, static serviceProvider => serviceProvider.GetRequiredService<T>(), misfirePolicy, maxCatchUp, timeZone));
     }
 
-    public void UseScopedJob<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(string expression, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0)
+    public void UseScopedJob<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(string expression, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0, TimeZoneInfo? timeZone = null)
         where T : class, ISchedulerJob
     {
         ValidateCronExpression(expression);
 
         services.TryAddScoped<T>();
-        registry.Jobs.Add(new JobRegistration(name, expression, static serviceProvider => new ScopedJobAdapter(serviceProvider, typeof(T)), misfirePolicy, maxCatchUp));
+        registry.Jobs.Add(new JobRegistration(name, expression, static serviceProvider => new ScopedJobAdapter(serviceProvider, typeof(T)), misfirePolicy, maxCatchUp, timeZone));
     }
 
     [RequiresDynamicCode("Type-based DI registration requires dynamic code. Use the generic UseScopedJob<T>() overload instead.")]
     [RequiresUnreferencedCode("Type-based DI registration may not be compatible with trimming. Use the generic UseScopedJob<T>() overload instead.")]
-    public void UseScopedJob(string expression, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type jobType, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0)
+    public void UseScopedJob(string expression, [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type jobType, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0, TimeZoneInfo? timeZone = null)
     {
         ValidateCronExpression(expression);
 
@@ -54,21 +54,21 @@ public sealed class JobSchedulerOptions
         }
 
         services.TryAdd(ServiceDescriptor.Scoped(jobType, jobType));
-        registry.Jobs.Add(new JobRegistration(name, expression, serviceProvider => new ScopedJobAdapter(serviceProvider, jobType), misfirePolicy, maxCatchUp));
+        registry.Jobs.Add(new JobRegistration(name, expression, serviceProvider => new ScopedJobAdapter(serviceProvider, jobType), misfirePolicy, maxCatchUp, timeZone));
     }
 
-    public void UseJob(string expression, ISchedulerJob job, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0)
+    public void UseJob(string expression, ISchedulerJob job, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0, TimeZoneInfo? timeZone = null)
     {
         ValidateCronExpression(expression);
 
-        registry.Jobs.Add(new JobRegistration(name, expression, _ => job, misfirePolicy, maxCatchUp));
+        registry.Jobs.Add(new JobRegistration(name, expression, _ => job, misfirePolicy, maxCatchUp, timeZone));
     }
 
-    public void UseJob(string expression, Func<IServiceProvider, ISchedulerJob> factory, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0)
+    public void UseJob(string expression, Func<IServiceProvider, ISchedulerJob> factory, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0, TimeZoneInfo? timeZone = null)
     {
         ValidateCronExpression(expression);
 
-        registry.Jobs.Add(new JobRegistration(name, expression, factory, misfirePolicy, maxCatchUp));
+        registry.Jobs.Add(new JobRegistration(name, expression, factory, misfirePolicy, maxCatchUp, timeZone));
     }
 
     private static void ValidateCronExpression(string expression)
