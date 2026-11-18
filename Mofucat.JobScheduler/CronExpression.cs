@@ -1,5 +1,6 @@
 namespace Mofucat.JobScheduler;
 
+using System.Diagnostics.CodeAnalysis;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -10,7 +11,7 @@ public sealed class CronExpression
     private const byte DayOfMonthRestricted = 0x1;
     // day-of-week is restricted by a non-wildcard value
     private const byte DayOfWeekRestricted = 0x2;
-    private const byte Interval = 0x4;
+    private const byte TimeWildcard = 0x4;
 
     // Days per month table
     private static ReadOnlySpan<byte> DaysInMonthTable => [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
@@ -63,42 +64,116 @@ public sealed class CronExpression
     // Parse
     //--------------------------------------------------------------------------------
 
-    [SkipLocalsInit]
     public static CronExpression Parse(string expression)
     {
-        var span = expression.AsSpan();
-        Span<Range> ranges = stackalloc Range[6];
-        var rangeCount = SplitFields(span, ranges);
-
-        if (rangeCount == 5)
-        {
-            return new CronExpression(
-                expression,
-                false,
-                1UL,
-                ParseFieldMask64(span[ranges[0]], 0, 59, "minute"),
-                (uint)ParseFieldMask64(span[ranges[1]], 0, 23, "hour"),
-                (uint)ParseFieldMask64(span[ranges[2]], 1, 31, "day-of-month"),
-                (ushort)ParseFieldMask64(span[ranges[3]], 1, 12, "month"),
-                (byte)NormalizeDayOfWeek(ParseFieldMask64(span[ranges[4]], 0, 7, "day-of-week")),
-                GetFlags(span[ranges[2]], span[ranges[4]], IsInterval(span[ranges[0]]) || IsInterval(span[ranges[1]])));
-        }
-        if (rangeCount == 6)
-        {
-            return new CronExpression(
-                expression,
-                true,
-                ParseFieldMask64(span[ranges[0]], 0, 59, "second"),
-                ParseFieldMask64(span[ranges[1]], 0, 59, "minute"),
-                (uint)ParseFieldMask64(span[ranges[2]], 0, 23, "hour"),
-                (uint)ParseFieldMask64(span[ranges[3]], 1, 31, "day-of-month"),
-                (ushort)ParseFieldMask64(span[ranges[4]], 1, 12, "month"),
-                (byte)NormalizeDayOfWeek(ParseFieldMask64(span[ranges[5]], 0, 7, "day-of-week")),
-                GetFlags(span[ranges[3]], span[ranges[5]], IsInterval(span[ranges[0]]) || IsInterval(span[ranges[1]]) || IsInterval(span[ranges[2]])));
-        }
-
-        throw new FormatException($"Cron expression must have 5 or 6 fields. expression=[{expression}]");
+        var failure = default(ParseFailure);
+        return ParseCore(expression, ref failure) ?? throw CreateFormatException(expression, failure);
     }
+
+    public static bool TryParse([NotNullWhen(true)] string? expression, [NotNullWhen(true)] out CronExpression? result)
+    {
+        var failure = default(ParseFailure);
+        result = expression is null ? null : ParseCore(expression, ref failure);
+        return result is not null;
+    }
+
+    private static CronExpression? ParseCore(string expression, ref ParseFailure failure)
+    {
+        var span = expression.AsSpan();
+        var index = 0;
+        while ((index < span.Length) && IsSeparator(span[index]))
+        {
+            index++;
+        }
+
+        if ((index < span.Length) && (span[index] == '@'))
+        {
+            return ParseMacro(expression, index, ref failure);
+        }
+
+        var fieldCount = CountFields(span);
+        if ((fieldCount != 5) && (fieldCount != 6))
+        {
+            failure = new ParseFailure(ParseError.FieldCount, 0, String.Empty, 0, 0);
+            return null;
+        }
+
+        var includesSeconds = fieldCount == 6;
+        var seconds = 1UL;
+        if (includesSeconds && !ParseField(span, ref index, 0, 59, "second", FieldNames.None, out seconds, out _, ref failure))
+        {
+            return null;
+        }
+
+        if (!ParseField(span, ref index, 0, 59, "minute", FieldNames.None, out var minutes, out var minuteShape, ref failure) ||
+            !ParseField(span, ref index, 0, 23, "hour", FieldNames.None, out var hours, out var hourShape, ref failure) ||
+            !ParseField(span, ref index, 1, 31, "day-of-month", FieldNames.None, out var daysOfMonth, out var dayOfMonthShape, ref failure) ||
+            !ParseField(span, ref index, 1, 12, "month", FieldNames.Month, out var months, out _, ref failure) ||
+            !ParseField(span, ref index, 0, 7, "day-of-week", FieldNames.DayOfWeek, out var daysOfWeek, out var dayOfWeekShape, ref failure))
+        {
+            return null;
+        }
+
+        return new CronExpression(
+            expression,
+            includesSeconds,
+            seconds,
+            minutes,
+            (uint)hours,
+            (uint)daysOfMonth,
+            (ushort)months,
+            (byte)NormalizeDayOfWeek(daysOfWeek),
+            GetFlags(minuteShape, hourShape, dayOfMonthShape, dayOfWeekShape));
+    }
+
+    private static CronExpression? ParseMacro(string expression, int start, ref ParseFailure failure)
+    {
+        var span = expression.AsSpan();
+        var end = start + 1;
+        while ((end < span.Length) && !IsSeparator(span[end]))
+        {
+            end++;
+        }
+
+        for (var i = end; i < span.Length; i++)
+        {
+            if (!IsSeparator(span[i]))
+            {
+                failure = new ParseFailure(ParseError.Macro, start, String.Empty, 0, 0);
+                return null;
+            }
+        }
+
+        var allHours = (uint)BuildMask(0, 23, 1);
+        var allDaysOfMonth = (uint)BuildMask(1, 31, 1);
+        var allMonths = (ushort)BuildMask(1, 12, 1);
+        var allDaysOfWeek = (byte)BuildMask(0, 6, 1);
+        var result = span[(start + 1)..end] switch
+        {
+            "yearly" or "annually" => new CronExpression(expression, false, 1UL, 1UL, 1U, 1U << 1, 1 << 1, allDaysOfWeek, DayOfMonthRestricted),
+            "monthly" => new CronExpression(expression, false, 1UL, 1UL, 1U, 1U << 1, allMonths, allDaysOfWeek, DayOfMonthRestricted),
+            "weekly" => new CronExpression(expression, false, 1UL, 1UL, 1U, allDaysOfMonth, allMonths, 1, DayOfWeekRestricted),
+            "daily" or "midnight" => new CronExpression(expression, false, 1UL, 1UL, 1U, allDaysOfMonth, allMonths, allDaysOfWeek, 0),
+            "hourly" => new CronExpression(expression, false, 1UL, 1UL, allHours, allDaysOfMonth, allMonths, allDaysOfWeek, TimeWildcard),
+            _ => null
+        };
+
+        if (result is null)
+        {
+            failure = new ParseFailure(ParseError.Macro, start, String.Empty, 0, 0);
+        }
+
+        return result;
+    }
+
+    private static FormatException CreateFormatException(string expression, ParseFailure failure) =>
+        failure.Error switch
+        {
+            ParseError.FieldCount => new FormatException($"Cron expression must have 5 or 6 fields. expression=[{expression}]"),
+            ParseError.Macro => new FormatException($"Unsupported macro. expression=[{expression}]"),
+            ParseError.ValueOutOfRange => new FormatException($"Value out of range in field. min=[{failure.Min}], max=[{failure.Max}], name=[{failure.Name}], field=[{GetField(expression, failure.FieldStart)}]"),
+            _ => new FormatException($"Invalid field. name=[{failure.Name}], field=[{GetField(expression, failure.FieldStart)}]")
+        };
 
     //--------------------------------------------------------------------------------
     // Next
@@ -111,50 +186,122 @@ public sealed class CronExpression
     {
         ArgumentNullException.ThrowIfNull(timeZone);
 
-        var local = TimeZoneInfo.ConvertTime(from, timeZone);
-        var time = local.DateTime;
-        var inclusive = false;
-
-        if (timeZone.IsAmbiguousTime(local))
+        if (!timeZone.SupportsDaylightSavingTime)
         {
-            var (earlyOffset, lateOffset) = GetAmbiguousOffsets(timeZone, time);
-            var end = GetTransitionEnd(timeZone, time, true);
-            if (local.Offset == earlyOffset)
-            {
-                var early = FindNextLocal(time, false);
-                if (early < end)
-                {
-                    return new DateTimeOffset(early.Value, earlyOffset);
-                }
-
-                time = end - (earlyOffset - lateOffset);
-                inclusive = true;
-            }
-
-            if ((flags & Interval) != 0)
-            {
-                var late = FindNextLocal(time, inclusive);
-                if (late < end)
-                {
-                    return new DateTimeOffset(late.Value, lateOffset);
-                }
-            }
-
-            time = end;
-            inclusive = true;
+            return GetNextOccurrence(from.ToOffset(timeZone.BaseUtcOffset));
         }
 
-        var next = FindNextLocal(time, inclusive);
+        var local = TimeZoneInfo.ConvertTime(from, timeZone);
+        var next = FindNextLocal(local.DateTime, false);
         if (next is null)
         {
             return null;
         }
 
         var value = next.Value;
-        if (timeZone.IsInvalidTime(value))
+        if (!timeZone.IsAmbiguousTime(value))
+        {
+            var candidate = TimeZoneInfo.ConvertTime(new DateTimeOffset(value, local.Offset), timeZone);
+            if (candidate.Offset == local.Offset)
+            {
+                return candidate;
+            }
+        }
+
+        return GetNextOccurrenceAroundTransition(local, value, timeZone);
+    }
+
+    public IEnumerable<DateTimeOffset> GetOccurrences(DateTimeOffset from, DateTimeOffset to)
+    {
+        var next = GetNextOccurrence(MoveBack(from));
+        while ((next is { } value) && (value < to))
+        {
+            yield return value;
+            next = GetNextOccurrence(value);
+        }
+    }
+
+    public IEnumerable<DateTimeOffset> GetOccurrences(DateTimeOffset from, DateTimeOffset to, TimeZoneInfo timeZone)
+    {
+        ArgumentNullException.ThrowIfNull(timeZone);
+
+        return GetOccurrencesInTimeZone(from, to, timeZone);
+    }
+
+    private IEnumerable<DateTimeOffset> GetOccurrencesInTimeZone(DateTimeOffset from, DateTimeOffset to, TimeZoneInfo timeZone)
+    {
+        var next = GetNextOccurrence(MoveBack(from), timeZone);
+        while ((next is { } value) && (value < to))
+        {
+            yield return value;
+            next = GetNextOccurrence(value, timeZone);
+        }
+    }
+
+    private static DateTimeOffset MoveBack(DateTimeOffset from) => from == DateTimeOffset.MinValue ? from : from.AddTicks(-1);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private DateTimeOffset? GetNextOccurrenceAroundTransition(DateTimeOffset local, DateTime value, TimeZoneInfo timeZone)
+    {
+        var time = local.DateTime;
+        if (timeZone.IsAmbiguousTime(time))
+        {
+            var (earlyOffset, lateOffset) = GetAmbiguousOffsets(timeZone, time);
+            var end = GetTransitionEnd(timeZone, time, true);
+            var wildcard = (flags & TimeWildcard) != 0;
+            if (local.Offset == earlyOffset)
+            {
+                if (value < end)
+                {
+                    return new DateTimeOffset(value, earlyOffset);
+                }
+
+                if (wildcard)
+                {
+                    var late = FindNextLocal(end - (earlyOffset - lateOffset), true);
+                    if (late < end)
+                    {
+                        return new DateTimeOffset(late.Value, lateOffset);
+                    }
+                }
+            }
+            else if (value < end)
+            {
+                if (wildcard)
+                {
+                    return new DateTimeOffset(value, lateOffset);
+                }
+
+                var next = FindNextLocal(end, true);
+                if (next is null)
+                {
+                    return null;
+                }
+
+                value = next.Value;
+            }
+        }
+
+        return ResolveLocal(value, timeZone);
+    }
+
+    private DateTimeOffset? ResolveLocal(DateTime value, TimeZoneInfo timeZone)
+    {
+        while (timeZone.IsInvalidTime(value))
         {
             var end = GetTransitionEnd(timeZone, value, false);
-            return new DateTimeOffset(end, timeZone.GetUtcOffset(end));
+            if ((flags & TimeWildcard) == 0)
+            {
+                return new DateTimeOffset(end, timeZone.GetUtcOffset(end));
+            }
+
+            var next = FindNextLocal(end, true);
+            if (next is null)
+            {
+                return null;
+            }
+
+            value = next.Value;
         }
 
         if (timeZone.IsAmbiguousTime(value))
@@ -491,162 +638,230 @@ public sealed class CronExpression
     // Parse helper
     //--------------------------------------------------------------------------------
 
-    private static int SplitFields(ReadOnlySpan<char> expression, Span<Range> ranges)
+    private static int CountFields(ReadOnlySpan<char> expression)
     {
         var count = 0;
-        var index = 0;
-        while ((index < expression.Length) && (count < ranges.Length))
+        var separated = true;
+        foreach (var c in expression)
         {
-            while ((index < expression.Length) && Char.IsWhiteSpace(expression[index]))
+            if (IsSeparator(c))
             {
-                index++;
+                separated = true;
             }
-
-            if (index >= expression.Length)
+            else if (separated)
             {
-                break;
+                separated = false;
+                count++;
             }
-
-            var start = index;
-            while ((index < expression.Length) && !Char.IsWhiteSpace(expression[index]))
-            {
-                index++;
-            }
-
-            ranges[count++] = start..index;
-        }
-
-        while (index < expression.Length)
-        {
-            if (!Char.IsWhiteSpace(expression[index]))
-            {
-                return count + 1;
-            }
-
-            index++;
         }
 
         return count;
     }
 
-    private static ulong ParseFieldMask64(ReadOnlySpan<char> field, int min, int max, string name)
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool IsSeparator(char c) =>
+        (c == ' ') || ((c >= '\t') && (c <= '\r')) || ((c > '\u007F') && Char.IsWhiteSpace(c));
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool ParseField(ReadOnlySpan<char> expression, ref int index, int min, int max, string name, FieldNames names, out ulong mask, out FieldShape shape, ref ParseFailure failure)
     {
-        // *
-        if ((field.Length == 1) && (field[0] == '*'))
+        while (IsSeparator(expression[index]))
         {
-            return BuildMask(min, max, 1);
+            index++;
         }
 
-        // */n
-        if ((field.Length > 2) && (field[0] == '*') && (field[1] == '/') && (field.IndexOf(',') < 0) && (field.IndexOf('-') < 0))
+        var start = index;
+        if (expression[index] == '*')
         {
-            return BuildMask(min, max, ParsePositiveInt32(field[2..], name, field));
+            if (((index + 1) == expression.Length) || IsSeparator(expression[index + 1]))
+            {
+                index++;
+                shape = FieldShape.Wildcard;
+                mask = BuildMask(min, max, 1);
+                return true;
+            }
+
+            shape = FieldShape.StartsWithWildcard;
+        }
+        else
+        {
+            shape = FieldShape.Other;
         }
 
-        if ((field.IndexOf(',') < 0) && (field.IndexOf('-') < 0) && (field.IndexOf('/') < 0))
+        mask = 0UL;
+        while (true)
         {
-            if (!TryParseUInt32(field, out var parsedValue))
+            int first;
+            int last;
+            if (expression[index] == '*')
             {
-                throw new FormatException($"Invalid value in field. name=[{name}], field=[{field}]");
-            }
-
-            var value = (int)parsedValue;
-            if ((value < min) || (value > max))
-            {
-                throw new FormatException($"Value out of range in field. min=[{min}], max=[{max}], name=[{name}], field=[{field}]");
-            }
-
-            return 1UL << value;
-        }
-
-        var result = 0UL;
-
-        // Mixed
-        var tokenStart = 0;
-        while (tokenStart <= field.Length)
-        {
-            var tokenEnd = tokenStart;
-            while ((tokenEnd < field.Length) && (field[tokenEnd] != ','))
-            {
-                tokenEnd++;
-            }
-
-            var term = field[tokenStart..tokenEnd];
-            if (term.IsEmpty)
-            {
-                throw new FormatException($"Invalid field. name=[{name}], field=[{field}]");
-            }
-
-            var slashIndex = term.IndexOf('/');
-            var rangePart = slashIndex >= 0 ? term[..slashIndex] : term;
-            var step = slashIndex >= 0 ? ParsePositiveInt32(term[(slashIndex + 1)..], name, term) : 1;
-
-            int start;
-            int end;
-
-            if (IsWildcard(rangePart))
-            {
-                // */n, *
-                start = min;
-                end = max;
+                index++;
+                first = min;
+                last = max;
             }
             else
             {
-                var dashIndex = rangePart.IndexOf('-');
-                if (dashIndex > 0)
+                var error = ParseValue(expression, ref index, min, max, names, out first);
+                if (error != ParseError.None)
                 {
-                    // a-b
-                    if (!TryParseUInt32(rangePart[..dashIndex], out var parsedStart)
-                        || !TryParseUInt32(rangePart[(dashIndex + 1)..], out var parsedEnd))
+                    return Fail(ref failure, error, start, name, min, max);
+                }
+
+                last = first;
+                if (index < expression.Length)
+                {
+                    if (expression[index] == '-')
                     {
-                        throw new FormatException($"Invalid range in field. name=[{name}], term=[{term}]");
-                    }
+                        index++;
+                        error = ParseValue(expression, ref index, min, max, names, out last);
+                        if (error != ParseError.None)
+                        {
+                            return Fail(ref failure, error, start, name, min, max);
+                        }
 
-                    start = (int)parsedStart;
-                    end = (int)parsedEnd;
-                }
-                else
-                {
-                    // Single value or a/n
-                    if (!TryParseUInt32(rangePart, out var parsedValue))
+                        if (last < first)
+                        {
+                            return Fail(ref failure, ParseError.ValueOutOfRange, start, name, min, max);
+                        }
+                    }
+                    else if (expression[index] == '/')
                     {
-                        throw new FormatException($"Invalid value in field. name=[{name}], term=[{term}]");
+                        last = max;
                     }
-
-                    start = (int)parsedValue;
-                    end = slashIndex >= 0 ? max : start;
                 }
             }
 
-            if ((start < min) || (end > max) || (start > end))
+            var step = 1;
+            if ((index < expression.Length) && (expression[index] == '/'))
             {
-                throw new FormatException($"Value out of range in field. min=[{min}], max=[{max}], name=[{name}], term=[{term}]");
-            }
-
-            for (var value = start; value <= end; value += step)
-            {
-                result |= 1UL << value;
-
-                if (value > end - step)
+                index++;
+                if (!ParseStep(expression, ref index, out step))
                 {
-                    break;
+                    return Fail(ref failure, ParseError.InvalidField, start, name, min, max);
                 }
             }
 
-            if (tokenEnd == field.Length)
+            mask |= BuildMask(first, last, step);
+
+            if ((index == expression.Length) || IsSeparator(expression[index]))
+            {
+                return true;
+            }
+
+            if (expression[index] != ',')
+            {
+                return Fail(ref failure, ParseError.InvalidField, start, name, min, max);
+            }
+
+            index++;
+            if ((index == expression.Length) || IsSeparator(expression[index]))
+            {
+                return Fail(ref failure, ParseError.InvalidField, start, name, min, max);
+            }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static ParseError ParseValue(ReadOnlySpan<char> expression, ref int index, int min, int max, FieldNames names, out int value)
+    {
+        var number = (index < expression.Length) && ((uint)(expression[index] - '0') <= 9) ? ParseNumber(expression, ref index) : ParseName(expression, ref index, names);
+        value = (int)number;
+        if ((number >= min) && (number <= max))
+        {
+            return ParseError.None;
+        }
+
+        return number < 0 ? ParseError.InvalidField : ParseError.ValueOutOfRange;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool ParseStep(ReadOnlySpan<char> expression, ref int index, out int step)
+    {
+        var value = ParseNumber(expression, ref index);
+        step = (int)value;
+        return (value > 0) && (value <= Int32.MaxValue);
+    }
+
+    private static long ParseName(ReadOnlySpan<char> expression, ref int index, FieldNames names)
+    {
+        var start = index;
+        while ((index < expression.Length) && Char.IsAsciiLetter(expression[index]))
+        {
+            index++;
+        }
+
+        if ((names == FieldNames.None) || ((index - start) != 3))
+        {
+            return -1;
+        }
+
+        var key = ((expression[start] | 0x20) << 16) | ((expression[start + 1] | 0x20) << 8) | (expression[start + 2] | 0x20);
+        return names == FieldNames.Month ? GetMonth(key) : GetDayOfWeek(key);
+    }
+
+    private static int GetMonth(int key) =>
+        key switch
+        {
+            ('j' << 16) | ('a' << 8) | 'n' => 1,
+            ('f' << 16) | ('e' << 8) | 'b' => 2,
+            ('m' << 16) | ('a' << 8) | 'r' => 3,
+            ('a' << 16) | ('p' << 8) | 'r' => 4,
+            ('m' << 16) | ('a' << 8) | 'y' => 5,
+            ('j' << 16) | ('u' << 8) | 'n' => 6,
+            ('j' << 16) | ('u' << 8) | 'l' => 7,
+            ('a' << 16) | ('u' << 8) | 'g' => 8,
+            ('s' << 16) | ('e' << 8) | 'p' => 9,
+            ('o' << 16) | ('c' << 8) | 't' => 10,
+            ('n' << 16) | ('o' << 8) | 'v' => 11,
+            ('d' << 16) | ('e' << 8) | 'c' => 12,
+            _ => -1
+        };
+
+    private static int GetDayOfWeek(int key) =>
+        key switch
+        {
+            ('s' << 16) | ('u' << 8) | 'n' => 0,
+            ('m' << 16) | ('o' << 8) | 'n' => 1,
+            ('t' << 16) | ('u' << 8) | 'e' => 2,
+            ('w' << 16) | ('e' << 8) | 'd' => 3,
+            ('t' << 16) | ('h' << 8) | 'u' => 4,
+            ('f' << 16) | ('r' << 8) | 'i' => 5,
+            ('s' << 16) | ('a' << 8) | 't' => 6,
+            _ => -1
+        };
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static long ParseNumber(ReadOnlySpan<char> expression, ref int index)
+    {
+        var start = index;
+        var value = 0L;
+        while (index < expression.Length)
+        {
+            var digit = expression[index] - '0';
+            if ((uint)digit > 9)
             {
                 break;
             }
 
-            tokenStart = tokenEnd + 1;
+            if (value <= Int32.MaxValue)
+            {
+                value = (value * 10) + digit;
+            }
+
+            index++;
         }
 
-        return result;
+        return index == start ? -1 : value;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static ulong BuildMask(int start, int end, int step)
     {
+        if (step == 1)
+        {
+            return (UInt64.MaxValue >> (63 - end)) & (UInt64.MaxValue << start);
+        }
+
         var result = 0UL;
         for (var i = start; i <= end; i += step)
         {
@@ -661,74 +876,45 @@ public sealed class CronExpression
         return result;
     }
 
-    private static int ParsePositiveInt32(ReadOnlySpan<char> value, string name, ReadOnlySpan<char> term)
-    {
-        if ((!TryParseUInt32(value, out var parsedValue)) || (parsedValue == 0) || (parsedValue > Int32.MaxValue))
-        {
-            throw new FormatException($"Invalid step in field. name=[{name}], term=[{term}]");
-        }
-
-        return (int)parsedValue;
-    }
-
-    private static bool TryParseUInt32(ReadOnlySpan<char> value, out uint result)
-    {
-        if (value.IsEmpty)
-        {
-            result = 0;
-            return false;
-        }
-
-        var accumulator = 0u;
-        foreach (var c in value)
-        {
-            var digit = c - '0';
-            if ((uint)digit > 9)
-            {
-                result = 0;
-                return false;
-            }
-
-            var next = (accumulator * 10) + (uint)digit;
-            if (next < accumulator)
-            {
-                // Overflow
-                result = 0;
-                return false;
-            }
-
-            accumulator = next;
-        }
-
-        result = accumulator;
-        return true;
-    }
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static byte GetFlags(ReadOnlySpan<char> dayOfMonthField, ReadOnlySpan<char> dayOfWeekField, bool interval)
+    private static byte GetFlags(FieldShape minute, FieldShape hour, FieldShape dayOfMonth, FieldShape dayOfWeek)
     {
         var flags = (byte)0;
-        if (!IsWildcard(dayOfMonthField))
+        if (dayOfMonth != FieldShape.Wildcard)
         {
             flags |= DayOfMonthRestricted;
         }
 
-        if (!IsWildcard(dayOfWeekField))
+        if (dayOfWeek != FieldShape.Wildcard)
         {
             flags |= DayOfWeekRestricted;
         }
 
-        if (interval)
+        if ((minute != FieldShape.Other) || (hour != FieldShape.Other))
         {
-            flags |= Interval;
+            flags |= TimeWildcard;
         }
 
         return flags;
     }
 
-    private static bool IsWildcard(ReadOnlySpan<char> value) => (value.Length == 1) && (value[0] == '*');
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static bool Fail(ref ParseFailure failure, ParseError error, int fieldStart, string name, int min, int max)
+    {
+        failure = new ParseFailure(error, fieldStart, name, min, max);
+        return false;
+    }
 
-    private static bool IsInterval(ReadOnlySpan<char> value) => value.IndexOfAny('*', '-', '/') >= 0;
+    private static ReadOnlySpan<char> GetField(ReadOnlySpan<char> expression, int fieldStart)
+    {
+        var end = fieldStart;
+        while ((end < expression.Length) && !IsSeparator(expression[end]))
+        {
+            end++;
+        }
+
+        return expression[fieldStart..end];
+    }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static ulong NormalizeDayOfWeek(ulong mask)
@@ -893,4 +1079,29 @@ public sealed class CronExpression
         var position = BitOperations.TrailingZeroCount(filteredMask);
         return position <= maxBit ? position : -1;
     }
+
+    private enum FieldShape
+    {
+        Other,
+        StartsWithWildcard,
+        Wildcard
+    }
+
+    private enum FieldNames
+    {
+        None,
+        Month,
+        DayOfWeek
+    }
+
+    private enum ParseError
+    {
+        None,
+        FieldCount,
+        InvalidField,
+        ValueOutOfRange,
+        Macro
+    }
+
+    private readonly record struct ParseFailure(ParseError Error, int FieldStart, string Name, int Min, int Max);
 }

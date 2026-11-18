@@ -79,12 +79,12 @@ builder.Services.AddJobSchedulerService(static options =>
 
 `IJobHandle.NextExecutionTime` and the time passed to `ExecuteAsync` use the offset of the job's time zone.
 
-Daylight saving time transitions are handled as follows:
+Daylight saving time transitions are handled as in cron on Linux. An expression whose minute or hour field starts with `*` is a wildcard job; any other expression is a fixed-time job.
 
-| Case | Behavior |
-|---|---|
-| Skipped time (clock moves forward) | Fires once when the clock jumps (`30 2 * * *` fires at 03:00 when 02:00 jumps to 03:00). |
-| Repeated time (clock moves back) | Fires only in the first pass when the second, minute and hour fields are fixed values. Fires in both passes when any of them uses `*`, a range or a step. |
+| Case | Fixed-time job | Wildcard job |
+|---|---|---|
+| Skipped time (clock moves forward) | Fires once when the clock jumps (`30 2 * * *` fires at 03:00 when 02:00 jumps to 03:00). | Skipped times don't fire (`30 * * * *` fires next at 03:30). |
+| Repeated time (clock moves back) | Fires only in the first pass. | Fires in both passes. |
 
 ## Misfire policy
 
@@ -148,4 +148,33 @@ if (found is not null)
 var removedCount = scheduler.RemoveAllJobs();
 
 await scheduler.StopAsync();
+```
+
+## Cron expression
+
+An expression has 5 fields (`minute hour day-of-month month day-of-week`) or 6 fields with a leading `second` field. Each field accepts `*`, values, ranges (`1-5`), steps (`*/15`, `1-30/5`) and lists (`1,15,30`). The month and day-of-week fields also accept names (`JAN`–`DEC`, `SUN`–`SAT`, case-insensitive), including in ranges and lists (`MON-FRI`).
+
+The following macros are supported:
+
+| Macro | Expression |
+|---|---|
+| `@yearly`, `@annually` | `0 0 1 1 *` |
+| `@monthly` | `0 0 1 * *` |
+| `@weekly` | `0 0 * * 0` |
+| `@daily`, `@midnight` | `0 0 * * *` |
+| `@hourly` | `0 * * * *` |
+
+`CronExpression` can be used directly. `GetOccurrences` returns the occurrences from `from` (inclusive) to `to` (exclusive):
+
+```csharp
+if (CronExpression.TryParse("0 9 * * MON-FRI", out var expression))
+{
+    var now = DateTimeOffset.Now;
+    var next = expression.GetNextOccurrence(now, TimeZoneInfo.Local);
+
+    foreach (var time in expression.GetOccurrences(now, now.AddDays(7), TimeZoneInfo.Local))
+    {
+        Console.WriteLine(time);
+    }
+}
 ```
