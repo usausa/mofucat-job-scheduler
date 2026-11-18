@@ -8,6 +8,7 @@ public sealed class ServiceCollectionExtensionsTests
     public void AddJobSchedulerServiceWhenCalledThenRegistersHostedService()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
 
         services.AddJobSchedulerService(static options =>
         {

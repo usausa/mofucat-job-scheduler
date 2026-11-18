@@ -1,5 +1,7 @@
 namespace Mofucat.JobScheduler.Tests;
 
+using Microsoft.Extensions.Logging;
+
 using Mofucat.JobScheduler.Tests.Mock;
 
 public sealed class SchedulerHostedServiceTests
@@ -9,6 +11,7 @@ public sealed class SchedulerHostedServiceTests
     {
         // Arrange
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddJobSchedulerService(static options =>
         {
             options.UseJob("*/1 * * * *", new NopJob());
@@ -30,9 +33,33 @@ public sealed class SchedulerHostedServiceTests
     }
 
     [Fact]
+    public async Task StartAsyncWhenLoggingIsRegisteredThenWritesToRegisteredLogger()
+    {
+        var services = new ServiceCollection();
+        var sink = new LogSink();
+        services.AddSingleton(sink);
+        services.AddSingleton(typeof(ILogger<>), typeof(CapturingLogger<>));
+        services.AddJobSchedulerService(static options =>
+        {
+            options.UseJob("*/1 * * * *", new NopJob());
+        });
+#pragma warning disable CA2007
+        await using var provider = services.BuildServiceProvider();
+#pragma warning restore CA2007
+        var hostedService = provider.GetServices<IHostedService>().OfType<SchedulerHostedService>().Single();
+
+        await hostedService.StartAsync(CancellationToken.None);
+        await hostedService.StopAsync(CancellationToken.None);
+
+        Assert.Contains("Scheduler started.", sink.Messages);
+        Assert.Contains("Scheduler stopped.", sink.Messages);
+    }
+
+    [Fact]
     public async Task StartAsyncWhenJobHasTimeZoneThenSchedulesInThatTimeZone()
     {
         var services = new ServiceCollection();
+        services.AddLogging();
         services.AddSingleton<TimeProvider>(new ManualTimeProvider(new DateTimeOffset(2026, 11, 17, 17, 0, 0, TimeSpan.Zero), TestTimeZones.Tokyo));
         services.AddJobSchedulerService(static options =>
         {

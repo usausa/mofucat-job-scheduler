@@ -683,6 +683,50 @@ public sealed class JobSchedulerTests
     }
 
     [Fact]
+    public async Task StartWhenJobRunsSlightlyLateThenPassesScheduledTime()
+    {
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 30, TimeSpan.Zero));
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var job = new RecordingJob();
+        scheduler.AddJob("*/1 * * * *", job, "sample");
+        await scheduler.StartAsync();
+
+        await timeProvider.AdvanceAsync(TimeSpan.FromMilliseconds(30010), cancellationTokenSource.Token);
+        var executionTime = await job.WaitForExecutionAsync(cancellationTokenSource.Token);
+
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 8, 0, TimeSpan.Zero), executionTime);
+
+        await scheduler.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task MisfirePolicyCatchUpWhenEarlierRunWasSlightlyLateThenReplaysUpToMaxCatchUp()
+    {
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 30, TimeSpan.Zero));
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var job = new CountingJob();
+        var handle = scheduler.AddJob("*/1 * * * *", job, "sample", maxCatchUp: 3);
+        await scheduler.StartAsync();
+
+        await timeProvider.AdvanceAsync(TimeSpan.FromMilliseconds(30010), cancellationTokenSource.Token);
+        await job.WaitForExecutionsAsync(1, cancellationTokenSource.Token);
+        await timeProvider.AdvanceAsync(TimeSpan.FromMinutes(5), cancellationTokenSource.Token);
+        await job.WaitForExecutionsAsync(4, cancellationTokenSource.Token);
+        await Task.Delay(50, cancellationTokenSource.Token);
+
+        Assert.Equal(4, job.ExecutionCount);
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 14, 0, TimeSpan.Zero), handle.NextExecutionTime);
+
+        await scheduler.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task StartWhenScheduledTimeIsSkippedByDaylightSavingTimeThenRunsWhenClockJumps()
     {
         using var cancellationTokenSource = CreateCancellationTokenSource();

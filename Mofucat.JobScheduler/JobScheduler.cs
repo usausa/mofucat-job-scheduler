@@ -406,23 +406,24 @@ public sealed class JobScheduler : IAsyncDisposable
                     // Compute the next execution time for the job
                     var timeZone = GetTimeZone(job);
                     var scheduledTime = job.Next.Value;
-                    var late = scheduledTime < now;
+                    var following = job.Cron.GetNextOccurrence(scheduledTime, timeZone);
+                    var late = following <= now;
                     var fireTime = TimeZoneInfo.ConvertTime(late ? now : scheduledTime, timeZone);
 
                     firingJobs.Add((job, fireTime));
 
                     // Update the next execution time
-                    if (job.MisfirePolicy == MisfirePolicy.Skip)
+                    if (!late)
+                    {
+                        // Normal firing
+                        job.CatchUpCount = 0;
+                        job.Next = following;
+                    }
+                    else if (job.MisfirePolicy == MisfirePolicy.Skip)
                     {
                         // Backlog is skipped
                         job.CatchUpCount = 0;
                         job.Next = job.Cron.GetNextOccurrence(now, timeZone);
-                    }
-                    else if (!late)
-                    {
-                        // Normal firing
-                        job.CatchUpCount = 0;
-                        job.Next = job.Cron.GetNextOccurrence(scheduledTime, timeZone);
                     }
                     else
                     {
@@ -437,7 +438,7 @@ public sealed class JobScheduler : IAsyncDisposable
                         else
                         {
                             // Below the limit: advance from the scheduled time
-                            job.Next = job.Cron.GetNextOccurrence(scheduledTime, timeZone);
+                            job.Next = following;
                         }
                     }
                 }

@@ -88,7 +88,7 @@ Daylight saving time transitions are handled as in cron on Linux. An expression 
 
 ## Misfire policy
 
-When the scheduler wakes up late, a job whose scheduled time has already passed is considered a *misfire*. The `MisfirePolicy` enum controls how missed occurrences are handled.
+When the scheduler wakes up so late that the following occurrence of a job has also passed, the job is considered a *misfire*. The `MisfirePolicy` enum controls how missed occurrences are handled. The time passed to `ExecuteAsync` is the scheduled time, or the current time for a misfire.
 
 | Policy | Behavior |
 |---|---|
