@@ -379,6 +379,19 @@ public sealed class CronExpressionTests
         Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 8, 0, TimeSpan.Zero), next);
     }
 
+    [Theory]
+    [InlineData("1 20 14 * * *", "2026-11-18T14:19:31+09:00", "2026-11-18T14:20:01+09:00")]
+    [InlineData("0 20 14 * * *", "2026-11-18T14:19:31+09:00", "2026-11-18T14:20:00+09:00")]
+    [InlineData("1 20 * * * *", "2026-11-18T14:19:31+09:00", "2026-11-18T14:20:01+09:00")]
+    [InlineData("1 20,40 * * * *", "2026-11-18T14:20:31+09:00", "2026-11-18T14:40:01+09:00")]
+    [InlineData("1 0 15 * * *", "2026-11-18T14:59:31+09:00", "2026-11-18T15:00:01+09:00")]
+    public void GetNextOccurrenceWhenUsingSixFieldsAndMinuteAdvancesThenStartsFromFirstSecond(string value, string from, string expected)
+    {
+        var next = CronExpression.Parse(value).GetNextOccurrence(DateTimeOffset.Parse(from, CultureInfo.InvariantCulture));
+
+        Assert.Equal(DateTimeOffset.Parse(expected, CultureInfo.InvariantCulture), next);
+    }
+
     [Fact]
     public void GetNextOccurrenceWhenUsingSixFieldsAndCurrentTimeMatchesThenReturnsNextMatchingSecond()
     {
@@ -523,6 +536,28 @@ public sealed class CronExpressionTests
             "2026-11-17T17:00:00+00:00",
             "2026-11-18T03:00:00+09:00",
             "2026-11-19T03:00:00+09:00");
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWithTimeZoneWhenUsingSixFieldsAndMinuteAdvancesThenStartsFromFirstSecond()
+    {
+        AssertOccurrences(
+            TestTimeZones.Tokyo,
+            "1 20 14 * * *",
+            "2026-11-18T05:19:31+00:00",
+            "2026-11-18T14:20:01+09:00",
+            "2026-11-19T14:20:01+09:00");
+    }
+
+    [Fact]
+    public void GetNextOccurrenceWithTimeZoneWhenUsingSixFieldsAndMinuteAdvancesInDaylightSavingTimeZoneThenStartsFromFirstSecond()
+    {
+        AssertOccurrences(
+            TestTimeZones.Eastern,
+            "1 20 14 * * *",
+            "2026-11-18T19:19:31+00:00",
+            "2026-11-18T14:20:01-05:00",
+            "2026-11-19T14:20:01-05:00");
     }
 
     [Fact]

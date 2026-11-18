@@ -594,7 +594,11 @@ public sealed class CronExpression
                 continue;
             }
 
-            minute = nextMinute;
+            if (nextMinute != minute)
+            {
+                minute = nextMinute;
+                second = 0;
+            }
 
             var nextSecond = FindNextBit(secondsMask, second, 59);
             if (nextSecond < 0)
