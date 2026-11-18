@@ -704,7 +704,7 @@ public sealed class CronExpression
                 var error = ParseValue(expression, ref index, min, max, names, out first);
                 if (error != ParseError.None)
                 {
-                    return Fail(ref failure, error, start, name, min, max);
+                    return Fail(out failure, error, start, name, min, max);
                 }
 
                 last = first;
@@ -716,12 +716,12 @@ public sealed class CronExpression
                         error = ParseValue(expression, ref index, min, max, names, out last);
                         if (error != ParseError.None)
                         {
-                            return Fail(ref failure, error, start, name, min, max);
+                            return Fail(out failure, error, start, name, min, max);
                         }
 
                         if (last < first)
                         {
-                            return Fail(ref failure, ParseError.ValueOutOfRange, start, name, min, max);
+                            return Fail(out failure, ParseError.ValueOutOfRange, start, name, min, max);
                         }
                     }
                     else if (expression[index] == '/')
@@ -737,7 +737,7 @@ public sealed class CronExpression
                 index++;
                 if (!ParseStep(expression, ref index, out step))
                 {
-                    return Fail(ref failure, ParseError.InvalidField, start, name, min, max);
+                    return Fail(out failure, ParseError.InvalidField, start, name, min, max);
                 }
             }
 
@@ -750,13 +750,13 @@ public sealed class CronExpression
 
             if (expression[index] != ',')
             {
-                return Fail(ref failure, ParseError.InvalidField, start, name, min, max);
+                return Fail(out failure, ParseError.InvalidField, start, name, min, max);
             }
 
             index++;
             if ((index == expression.Length) || IsSeparator(expression[index]))
             {
-                return Fail(ref failure, ParseError.InvalidField, start, name, min, max);
+                return Fail(out failure, ParseError.InvalidField, start, name, min, max);
             }
         }
     }
@@ -899,7 +899,7 @@ public sealed class CronExpression
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static bool Fail(ref ParseFailure failure, ParseError error, int fieldStart, string name, int min, int max)
+    private static bool Fail(out ParseFailure failure, ParseError error, int fieldStart, string name, int min, int max)
     {
         failure = new ParseFailure(error, fieldStart, name, min, max);
         return false;
