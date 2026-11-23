@@ -6,9 +6,7 @@ public interface IJobHandle
 
     string CronExpression { get; }
 
-    bool IsRemoved { get; }
-
-    bool IsPaused { get; }
+    JobState State { get; }
 
     bool IsRunning { get; }
 

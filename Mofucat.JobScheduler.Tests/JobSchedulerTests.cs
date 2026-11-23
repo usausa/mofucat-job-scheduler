@@ -106,8 +106,8 @@ public sealed class JobSchedulerTests
 
         // Assert
         Assert.Equal(2, removedCount);
-        Assert.True(firstHandle.IsRemoved);
-        Assert.True(secondHandle.IsRemoved);
+        Assert.Equal(JobState.Removed, firstHandle.State);
+        Assert.Equal(JobState.Removed, secondHandle.State);
         Assert.False(firstJob.HasExecuted);
         Assert.False(secondJob.HasExecuted);
     }
@@ -162,7 +162,7 @@ public sealed class JobSchedulerTests
 
         // Assert
         Assert.True(removed);
-        Assert.True(handle.IsRemoved);
+        Assert.Equal(JobState.Removed, handle.State);
         Assert.False(job.HasExecuted);
     }
 
@@ -467,7 +467,7 @@ public sealed class JobSchedulerTests
         await Task.Delay(50, cancellationTokenSource.Token);
 
         // Assert
-        Assert.True(targetHandle.IsRemoved);
+        Assert.Equal(JobState.Removed, targetHandle.State);
         Assert.False(target.HasExecuted);
 
         await scheduler.StopAsync(TestContext.Current.CancellationToken);

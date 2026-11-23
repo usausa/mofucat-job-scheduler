@@ -6,7 +6,7 @@ internal sealed class ScheduledJob
 
     private int runningCount;
 
-    private volatile bool paused;
+    private volatile JobState state;
 
     public string Name { get; }
 
@@ -34,10 +34,10 @@ internal sealed class ScheduledJob
 
     public int TriggerCount { get; set; }
 
-    public bool IsPaused
+    public JobState State
     {
-        get => paused;
-        set => paused = value;
+        get => state;
+        set => state = value;
     }
 
     public bool IsRunning => Volatile.Read(ref runningCount) > 0;

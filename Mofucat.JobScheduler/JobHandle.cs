@@ -6,15 +6,11 @@ internal sealed class JobHandle : IJobHandle
 
     private readonly ScheduledJob job;
 
-    private volatile bool removed;
-
     public string Name => job.Name;
 
     public string CronExpression { get; }
 
-    public bool IsRemoved => removed;
-
-    public bool IsPaused => job.IsPaused;
+    public JobState State => job.State;
 
     public bool IsRunning => job.IsRunning;
 
@@ -36,6 +32,4 @@ internal sealed class JobHandle : IJobHandle
     public bool Resume() => scheduler.ResumeJob(job);
 
     public bool Trigger() => scheduler.TriggerJob(job);
-
-    internal void MarkRemoved() => removed = true;
 }

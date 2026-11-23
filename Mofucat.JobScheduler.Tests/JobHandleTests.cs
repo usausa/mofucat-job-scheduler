@@ -22,7 +22,7 @@ public sealed class JobHandleTests
 
         Assert.True(handle.Pause());
         Assert.False(handle.Pause());
-        Assert.True(handle.IsPaused);
+        Assert.Equal(JobState.Paused, handle.State);
         Assert.Null(handle.NextExecutionTime);
 
         await timeProvider.AdvanceAsync(TimeSpan.FromSeconds(5), cancellationTokenSource.Token);
@@ -32,7 +32,7 @@ public sealed class JobHandleTests
 
         Assert.True(handle.Resume());
         Assert.False(handle.Resume());
-        Assert.False(handle.IsPaused);
+        Assert.Equal(JobState.Scheduled, handle.State);
         Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 20, TimeSpan.Zero), handle.NextExecutionTime);
 
         await timeProvider.AdvanceAsync(TimeSpan.FromSeconds(10), cancellationTokenSource.Token);
@@ -84,7 +84,7 @@ public sealed class JobHandleTests
         await trigger.WaitForExecutionAsync(cancellationTokenSource.Token);
         await Task.Delay(50, cancellationTokenSource.Token);
 
-        Assert.True(targetHandle.IsPaused);
+        Assert.Equal(JobState.Paused, targetHandle.State);
         Assert.False(target.HasExecuted);
 
         await scheduler.StopAsync(TestContext.Current.CancellationToken);
@@ -130,7 +130,7 @@ public sealed class JobHandleTests
         await job.WaitForExecutionAsync(cancellationTokenSource.Token);
 
         Assert.True(triggered);
-        Assert.True(handle.IsPaused);
+        Assert.Equal(JobState.Paused, handle.State);
         Assert.Null(handle.NextExecutionTime);
 
         await scheduler.StopAsync(TestContext.Current.CancellationToken);
@@ -223,9 +223,66 @@ public sealed class JobHandleTests
 
         Assert.Null(oldHandle.NextExecutionTime);
         Assert.False(oldHandle.Remove());
-        Assert.False(newHandle.IsRemoved);
+        Assert.Equal(JobState.Scheduled, newHandle.State);
         Assert.Same(newHandle, scheduler.FindJob("sample"));
         Assert.Equal(new DateTimeOffset(2026, 4, 27, 4, 0, 0, TimeSpan.Zero), newHandle.NextExecutionTime);
+
+        await scheduler.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task StateWhenJobIsPausedResumedAndRemovedThenFollowsLifecycle()
+    {
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var handle = scheduler.AddJob("*/10 * * * * *", new NopJob(), "sample");
+
+        Assert.Equal(JobState.Scheduled, handle.State);
+
+        handle.Pause();
+
+        Assert.Equal(JobState.Paused, handle.State);
+
+        handle.Resume();
+
+        Assert.Equal(JobState.Scheduled, handle.State);
+
+        handle.Pause();
+        handle.Remove();
+
+        Assert.Equal(JobState.Removed, handle.State);
+    }
+
+    [Fact]
+    public async Task IsRunningWhenJobIsPausedAndRemovedDuringExecutionThenStaysTrueUntilCompletion()
+    {
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var job = new LongRunningJob();
+        var handle = scheduler.AddJob("0 3 * * *", job, "daily");
+        await scheduler.StartAsync();
+
+        handle.Trigger();
+        await job.WaitForExecutionsAsync(1, cancellationTokenSource.Token);
+        handle.Pause();
+
+        Assert.Equal(JobState.Paused, handle.State);
+        Assert.True(handle.IsRunning);
+
+        handle.Remove();
+
+        Assert.Equal(JobState.Removed, handle.State);
+        Assert.True(handle.IsRunning);
+
+        job.Release();
+        await WaitUntilAsync(() => !handle.IsRunning, cancellationTokenSource.Token);
+
+        Assert.Equal(JobState.Removed, handle.State);
 
         await scheduler.StopAsync(TestContext.Current.CancellationToken);
     }

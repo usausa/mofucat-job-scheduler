@@ -133,7 +133,7 @@ public sealed class JobScheduler : IAsyncDisposable
             {
                 job.TriggerCount = 0;
                 job.CatchUpCount = 0;
-                job.Next = job.IsPaused ? null : job.Cron.GetNextOccurrence(now, GetTimeZone(job));
+                job.Next = job.State == JobState.Paused ? null : job.Cron.GetNextOccurrence(now, GetTimeZone(job));
             }
 
             // ReSharper disable once MethodSupportsCancellation
@@ -283,7 +283,7 @@ public sealed class JobScheduler : IAsyncDisposable
 
             foreach (var job in jobs)
             {
-                job.Handle.MarkRemoved();
+                job.State = JobState.Removed;
             }
 
             jobs.Clear();
@@ -320,7 +320,7 @@ public sealed class JobScheduler : IAsyncDisposable
     {
         lock (sync)
         {
-            return job.Handle.IsRemoved ? null : job.Next;
+            return job.State == JobState.Removed ? null : job.Next;
         }
     }
 
@@ -328,7 +328,7 @@ public sealed class JobScheduler : IAsyncDisposable
     {
         _ = jobsByName.Remove(job.Name);
         _ = jobs.Remove(job);
-        job.Handle.MarkRemoved();
+        job.State = JobState.Removed;
         SignalWakeupUnsafe();
     }
 
@@ -336,12 +336,12 @@ public sealed class JobScheduler : IAsyncDisposable
     {
         lock (sync)
         {
-            if (job.Handle.IsRemoved || job.IsPaused)
+            if (job.State != JobState.Scheduled)
             {
                 return false;
             }
 
-            job.IsPaused = true;
+            job.State = JobState.Paused;
             job.Next = null;
             job.CatchUpCount = 0;
             SignalWakeupUnsafe();
@@ -354,12 +354,12 @@ public sealed class JobScheduler : IAsyncDisposable
     {
         lock (sync)
         {
-            if (job.Handle.IsRemoved || !job.IsPaused)
+            if (job.State != JobState.Paused)
             {
                 return false;
             }
 
-            job.IsPaused = false;
+            job.State = JobState.Scheduled;
             if (isRunning)
             {
                 job.Next = job.Cron.GetNextOccurrence(timeProvider.GetUtcNow(), GetTimeZone(job));
@@ -374,7 +374,7 @@ public sealed class JobScheduler : IAsyncDisposable
     {
         lock (sync)
         {
-            if (!isRunning || job.Handle.IsRemoved)
+            if (!isRunning || (job.State == JobState.Removed))
             {
                 return false;
             }
@@ -539,7 +539,8 @@ public sealed class JobScheduler : IAsyncDisposable
             // Fire jobs
             foreach (var (job, fireTime, manual) in firingJobs)
             {
-                if (job.Handle.IsRemoved || (!manual && job.IsPaused))
+                var state = job.State;
+                if ((state == JobState.Removed) || (!manual && (state == JobState.Paused)))
                 {
                     continue;
                 }

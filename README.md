@@ -207,7 +207,8 @@ if (handle.LastExecution is { } last)
 | `Pause()` | Stops scheduling the job (`NextExecutionTime` becomes `null`). A running execution continues. |
 | `Resume()` | Resumes scheduling from the current time. Occurrences missed while paused are not replayed. |
 | `Trigger()` | Requests a run now, also while paused. The time passed to `ExecuteAsync` is the current time, and `ConcurrencyPolicy` applies when the run starts, so a skipped run still returns `true`. |
-| `IsPaused` / `IsRunning` | Whether the job is paused / has an execution in progress. |
+| `State` | `Scheduled`, `Paused`, or `Removed`. |
+| `IsRunning` | Whether an execution is in progress. This is independent of `State`: pausing or removing a job does not stop a running execution. |
 | `LastExecution` | Time passed to `ExecuteAsync`, duration, and exception (`null` on success) of the last completed execution. |
 
 `Pause()` and `Resume()` return `false` when they have no effect, and `Trigger()` returns `false` when the scheduler is not running; all three return `false` for a removed job.
