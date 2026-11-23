@@ -1,5 +1,6 @@
 namespace Mofucat.JobScheduler;
 
+using System.Diagnostics;
 using System.Globalization;
 
 #pragma warning disable CA1724
@@ -7,7 +8,11 @@ public sealed class JobScheduler : IAsyncDisposable
 {
     public event EventHandler<JobErrorEventArgs>? JobError;
 
+    public event EventHandler<JobCompletedEventArgs>? JobCompleted;
+
     private static readonly TimeSpan MaxSingleWait = TimeSpan.FromHours(1);
+
+    private static readonly TimeSpan MaxTimeout = TimeSpan.FromMilliseconds(uint.MaxValue - 1);
 
     private readonly TimeProvider timeProvider;
 
@@ -126,7 +131,9 @@ public sealed class JobScheduler : IAsyncDisposable
             var now = timeProvider.GetUtcNow();
             foreach (var job in jobs)
             {
-                job.Next = job.Cron.GetNextOccurrence(now, GetTimeZone(job));
+                job.TriggerCount = 0;
+                job.CatchUpCount = 0;
+                job.Next = job.IsPaused ? null : job.Cron.GetNextOccurrence(now, GetTimeZone(job));
             }
 
             // ReSharper disable once MethodSupportsCancellation
@@ -215,9 +222,14 @@ public sealed class JobScheduler : IAsyncDisposable
     // Job
     //--------------------------------------------------------------------------------
 
-    public IJobHandle AddJob(string cronExpression, ISchedulerJob job, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0, TimeZoneInfo? timeZone = null)
+    public IJobHandle AddJob(string cronExpression, ISchedulerJob job, string? name = null, MisfirePolicy misfirePolicy = MisfirePolicy.CatchUp, int maxCatchUp = 0, TimeZoneInfo? timeZone = null, ConcurrencyPolicy concurrencyPolicy = ConcurrencyPolicy.Allow, TimeSpan? timeout = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(maxCatchUp);
+        if (timeout is { } value)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(value, TimeSpan.Zero, nameof(timeout));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(value, MaxTimeout, nameof(timeout));
+        }
 
         var expression = CronExpression.Parse(cronExpression);
 
@@ -231,8 +243,7 @@ public sealed class JobScheduler : IAsyncDisposable
                 throw new ArgumentException($"A job with the same name already exists. name=[{actualName}]", nameof(name));
             }
 
-            var handle = new JobHandle(this, actualName, cronExpression);
-            var scheduledJob = new ScheduledJob(actualName, expression, job, handle, misfirePolicy, maxCatchUp, timeZone);
+            var scheduledJob = new ScheduledJob(this, actualName, name is not null, cronExpression, expression, job, misfirePolicy, maxCatchUp, timeZone, concurrencyPolicy, timeout);
             if (isRunning)
             {
                 scheduledJob.Next = expression.GetNextOccurrence(timeProvider.GetUtcNow(), GetTimeZone(scheduledJob));
@@ -242,7 +253,7 @@ public sealed class JobScheduler : IAsyncDisposable
             jobsByName.Add(actualName, scheduledJob);
             SignalWakeupUnsafe();
 
-            return handle;
+            return scheduledJob.Handle;
         }
     }
 
@@ -250,16 +261,13 @@ public sealed class JobScheduler : IAsyncDisposable
     {
         lock (sync)
         {
-            if (jobsByName.Remove(name, out var job))
+            if (!jobsByName.TryGetValue(name, out var job))
             {
-                _ = jobs.Remove(job);
-                job.Handle.MarkRemoved();
-                SignalWakeupUnsafe();
-
-                return true;
+                return false;
             }
 
-            return false;
+            RemoveJobUnsafe(job);
+            return true;
         }
     }
 
@@ -294,16 +302,87 @@ public sealed class JobScheduler : IAsyncDisposable
         }
     }
 
-    internal DateTimeOffset? GetNextExecutionTime(string name)
+    internal bool RemoveJob(ScheduledJob job)
     {
         lock (sync)
         {
-            if (jobsByName.TryGetValue(name, out var job))
+            if (!jobsByName.TryGetValue(job.Name, out var current) || !ReferenceEquals(current, job))
             {
-                return job.Next;
+                return false;
             }
 
-            return null;
+            RemoveJobUnsafe(job);
+            return true;
+        }
+    }
+
+    internal DateTimeOffset? GetNextExecutionTime(ScheduledJob job)
+    {
+        lock (sync)
+        {
+            return job.Handle.IsRemoved ? null : job.Next;
+        }
+    }
+
+    private void RemoveJobUnsafe(ScheduledJob job)
+    {
+        _ = jobsByName.Remove(job.Name);
+        _ = jobs.Remove(job);
+        job.Handle.MarkRemoved();
+        SignalWakeupUnsafe();
+    }
+
+    internal bool PauseJob(ScheduledJob job)
+    {
+        lock (sync)
+        {
+            if (job.Handle.IsRemoved || job.IsPaused)
+            {
+                return false;
+            }
+
+            job.IsPaused = true;
+            job.Next = null;
+            job.CatchUpCount = 0;
+            SignalWakeupUnsafe();
+
+            return true;
+        }
+    }
+
+    internal bool ResumeJob(ScheduledJob job)
+    {
+        lock (sync)
+        {
+            if (job.Handle.IsRemoved || !job.IsPaused)
+            {
+                return false;
+            }
+
+            job.IsPaused = false;
+            if (isRunning)
+            {
+                job.Next = job.Cron.GetNextOccurrence(timeProvider.GetUtcNow(), GetTimeZone(job));
+                SignalWakeupUnsafe();
+            }
+
+            return true;
+        }
+    }
+
+    internal bool TriggerJob(ScheduledJob job)
+    {
+        lock (sync)
+        {
+            if (!isRunning || job.Handle.IsRemoved)
+            {
+                return false;
+            }
+
+            job.TriggerCount++;
+            SignalWakeupUnsafe();
+
+            return true;
         }
     }
 
@@ -322,7 +401,8 @@ public sealed class JobScheduler : IAsyncDisposable
 
     private async Task RunLoopAsync(CancellationToken cancellationToken)
     {
-        var firingJobs = new List<(ScheduledJob Job, DateTimeOffset FireTime)>();
+        Activity.Current = null;
+        var firingJobs = new List<(ScheduledJob Job, DateTimeOffset FireTime, bool Manual)>();
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -334,6 +414,12 @@ public sealed class JobScheduler : IAsyncDisposable
                 nextTime = null;
                 foreach (var job in jobs)
                 {
+                    if (job.TriggerCount > 0)
+                    {
+                        nextTime = DateTimeOffset.MinValue;
+                        break;
+                    }
+
                     if (job.Next is null)
                     {
                         continue;
@@ -397,6 +483,12 @@ public sealed class JobScheduler : IAsyncDisposable
             {
                 foreach (var job in jobs)
                 {
+                    while (job.TriggerCount > 0)
+                    {
+                        job.TriggerCount--;
+                        firingJobs.Add((job, TimeZoneInfo.ConvertTime(now, GetTimeZone(job)), true));
+                    }
+
                     // Skip future jobs
                     if ((job.Next is null) || (job.Next > now))
                     {
@@ -410,7 +502,7 @@ public sealed class JobScheduler : IAsyncDisposable
                     var late = following <= now;
                     var fireTime = TimeZoneInfo.ConvertTime(late ? now : scheduledTime, timeZone);
 
-                    firingJobs.Add((job, fireTime));
+                    firingJobs.Add((job, fireTime, false));
 
                     // Update the next execution time
                     if (!late)
@@ -445,10 +537,16 @@ public sealed class JobScheduler : IAsyncDisposable
             }
 
             // Fire jobs
-            foreach (var (job, fireTime) in firingJobs)
+            foreach (var (job, fireTime, manual) in firingJobs)
             {
-                if (job.Handle.IsRemoved)
+                if (job.Handle.IsRemoved || (!manual && job.IsPaused))
                 {
+                    continue;
+                }
+
+                if (!job.TryBeginExecution())
+                {
+                    SchedulerDiagnostics.Skip(job.DiagnosticName);
                     continue;
                 }
 
@@ -514,10 +612,20 @@ public sealed class JobScheduler : IAsyncDisposable
 
     private async Task FireJobAsync(ScheduledJob job, DateTimeOffset fireTime, CancellationToken cancellationToken)
     {
+        var activity = SchedulerDiagnostics.StartExecution(job.DiagnosticName);
+        var timestamp = timeProvider.GetTimestamp();
+        Exception? exception = null;
 #pragma warning disable CA1031
         try
         {
-            await job.Job.ExecuteAsync(fireTime, cancellationToken).ConfigureAwait(false);
+            if (job.Timeout is { } timeout)
+            {
+                await ExecuteWithTimeoutAsync(job, fireTime, timeout, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await job.Job.ExecuteAsync(fireTime, cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -525,16 +633,54 @@ public sealed class JobScheduler : IAsyncDisposable
         }
         catch (Exception ex)
         {
-            try
-            {
-                JobError?.Invoke(this, new JobErrorEventArgs(job.Name, ex));
-            }
-            catch
-            {
-                // JobError handler must not fault the job task and StopAsync.
-            }
+            exception = ex;
         }
 #pragma warning restore CA1031
+
+        var duration = timeProvider.GetElapsedTime(timestamp);
+        job.CompleteExecution(fireTime, duration, exception);
+        SchedulerDiagnostics.RecordExecution(activity, job.DiagnosticName, duration, exception);
+
+        if ((exception is not null) && (JobError is { } errorHandler))
+        {
+            InvokeHandler(errorHandler, new JobErrorEventArgs(job.Name, exception));
+        }
+
+        if (JobCompleted is { } completedHandler)
+        {
+            InvokeHandler(completedHandler, new JobCompletedEventArgs(job.Name, fireTime, duration, exception));
+        }
+
+        SchedulerDiagnostics.StopExecution(activity);
+        job.EndExecution();
+    }
+
+    private void InvokeHandler<TEventArgs>(EventHandler<TEventArgs> handler, TEventArgs args)
+    {
+#pragma warning disable CA1031
+        try
+        {
+            handler(this, args);
+        }
+        catch
+        {
+            // Event handlers must not fault the job task and StopAsync.
+        }
+#pragma warning restore CA1031
+    }
+
+    private async ValueTask ExecuteWithTimeoutAsync(ScheduledJob job, DateTimeOffset fireTime, TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        using var timeoutSource = new CancellationTokenSource(timeout, timeProvider);
+        using var linkedSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutSource.Token);
+        try
+        {
+            await job.Job.ExecuteAsync(fireTime, linkedSource.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex) when (timeoutSource.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"Job execution timed out. name=[{job.Name}], timeout=[{timeout}]", ex);
+        }
     }
 
     private sealed class RunningTaskCollection

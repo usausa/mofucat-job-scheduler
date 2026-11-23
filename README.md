@@ -32,6 +32,8 @@ internal sealed class SampleJob : ISchedulerJob
 }
 ```
 
+`ExecuteAsync` runs on the scheduler loop until its first `await` that does not complete synchronously, so heavy synchronous work there delays other jobs. Start such a job with `await Task.Yield()` to run the rest on the thread pool.
+
 ## Dependency injection
 
 Use `Mofucat.JobScheduler.DependencyInjection` to register the scheduler as a hosted service:
@@ -126,6 +128,41 @@ builder.Services.AddJobSchedulerService(static options =>
 });
 ```
 
+## Concurrency policy
+
+The `ConcurrencyPolicy` enum controls what happens when a job is due while its previous execution is still running.
+
+| Policy | Behavior |
+|---|---|
+| `Allow` (default) | Starts a new execution alongside the running one. |
+| `Skip` | Skips the occurrence. This also applies to occurrences replayed by `CatchUp`. |
+
+```csharp
+scheduler.AddJob("*/1 * * * *", new SampleJob(), "no-overlap", concurrencyPolicy: ConcurrencyPolicy.Skip);
+```
+
+```csharp
+builder.Services.AddJobSchedulerService(static options =>
+{
+    options.UseScopedJob<SampleJob>("*/1 * * * *", name: "no-overlap", concurrencyPolicy: ConcurrencyPolicy.Skip);
+});
+```
+
+## Timeout
+
+`timeout` cancels the `CancellationToken` passed to `ExecuteAsync` when an execution takes longer than the specified time. If the job then ends with an `OperationCanceledException`, it is reported as a `TimeoutException`. A job that ignores the token keeps running.
+
+```csharp
+scheduler.AddJob("*/5 * * * *", new SampleJob(), "limited", timeout: TimeSpan.FromMinutes(1));
+```
+
+```csharp
+builder.Services.AddJobSchedulerService(static options =>
+{
+    options.UseScopedJob<SampleJob>("*/5 * * * *", name: "limited", timeout: TimeSpan.FromMinutes(1));
+});
+```
+
 ## Dynamic job management
 
 Jobs can be added and removed while the scheduler is running:
@@ -148,6 +185,58 @@ if (found is not null)
 var removedCount = scheduler.RemoveAllJobs();
 
 await scheduler.StopAsync();
+```
+
+`IJobHandle` can also pause, resume, and trigger a job, and reports its execution state:
+
+```csharp
+var handle = scheduler.AddJob("0 3 * * *", new SampleJob(), "daily");
+
+handle.Pause();
+handle.Resume();
+handle.Trigger();
+
+if (handle.LastExecution is { } last)
+{
+    Console.WriteLine($"{last.Time} {last.Duration} {last.Exception?.Message}");
+}
+```
+
+| Member | Description |
+|---|---|
+| `Pause()` | Stops scheduling the job (`NextExecutionTime` becomes `null`). A running execution continues. |
+| `Resume()` | Resumes scheduling from the current time. Occurrences missed while paused are not replayed. |
+| `Trigger()` | Requests a run now, also while paused. The time passed to `ExecuteAsync` is the current time, and `ConcurrencyPolicy` applies when the run starts, so a skipped run still returns `true`. |
+| `IsPaused` / `IsRunning` | Whether the job is paused / has an execution in progress. |
+| `LastExecution` | Time passed to `ExecuteAsync`, duration, and exception (`null` on success) of the last completed execution. |
+
+`Pause()` and `Resume()` return `false` when they have no effect, and `Trigger()` returns `false` when the scheduler is not running; all three return `false` for a removed job.
+
+## Events
+
+`JobError` is raised when an execution fails. `JobCompleted` is raised after every execution with the time passed to `ExecuteAsync`, the duration, and the exception reported to `JobError` (`null` otherwise). Cancellation by `StopAsync` is not reported as an error. Handlers can run on the scheduler loop, so keep them short and do not wait for `StopAsync` in them.
+
+```csharp
+scheduler.JobError += static (_, e) => Console.WriteLine($"{e.JobName} failed: {e.Exception.Message}");
+scheduler.JobCompleted += static (_, e) => Console.WriteLine($"{e.JobName} {e.Time:HH:mm:ss} {e.Duration.TotalMilliseconds}ms");
+```
+
+## Diagnostics
+
+The scheduler publishes an `ActivitySource` and a `Meter` named `Mofucat.JobScheduler`:
+
+| Name | Kind | Tags |
+|---|---|---|
+| `ExecuteJob` | Root activity for each execution, with error status on failure | `job.name` |
+| `scheduler.job.duration` | Histogram of execution duration in seconds | `job.name`, `error.type` on failure |
+| `scheduler.job.skipped` | Counter of executions skipped by `ConcurrencyPolicy.Skip` | `job.name` |
+
+`job.name` is set only for jobs registered with a name.
+
+```csharp
+builder.Services.AddOpenTelemetry()
+    .WithTracing(static tracing => tracing.AddSource("Mofucat.JobScheduler"))
+    .WithMetrics(static metrics => metrics.AddMeter("Mofucat.JobScheduler"));
 ```
 
 ## Cron expression

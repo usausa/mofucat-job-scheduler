@@ -20,27 +20,9 @@ public sealed class ManualTimeProvider(DateTimeOffset start, TimeZoneInfo? local
 
     public override long GetTimestamp() => GetUtcNow().Ticks;
 
+    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
     public override TimeZoneInfo LocalTimeZone { get; } = localTimeZone ?? TimeZoneInfo.Utc;
-
-    private bool HasActiveTimer
-    {
-        get
-        {
-            lock (sync)
-            {
-                // ReSharper disable once LoopCanBeConvertedToQuery
-                foreach (var registration in timers.Values)
-                {
-                    if (!registration.IsDisposed && (registration.NextTick != DateTimeOffset.MaxValue))
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
-            }
-        }
-    }
 
     public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
     {
@@ -68,27 +50,44 @@ public sealed class ManualTimeProvider(DateTimeOffset start, TimeZoneInfo? local
 
     public async Task AdvanceAsync(TimeSpan amount, CancellationToken cancellationToken)
     {
-        while (!HasActiveTimer)
+        while (!TryAdvance(amount))
         {
             await Task.Delay(1, cancellationToken).ConfigureAwait(false);
         }
-
-        Advance(amount);
     }
 
-    private void Advance(TimeSpan amount)
+    private bool HasActiveTimerUnsafe()
     {
+        // ReSharper disable once LoopCanBeConvertedToQuery
+        foreach (var registration in timers.Values)
+        {
+            if (!registration.IsDisposed && (registration.NextTick != DateTimeOffset.MaxValue))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryAdvance(TimeSpan amount)
+    {
+        lock (sync)
+        {
+            if (!HasActiveTimerUnsafe())
+            {
+                return false;
+            }
+
+            current += amount;
+        }
+
         var dueCallbacks = new Queue<(TimerCallback Callback, object? State)>();
 
         while (true)
         {
             lock (sync)
             {
-                if (dueCallbacks.Count == 0)
-                {
-                    current += amount;
-                }
-
                 foreach (var registration in timers.Values)
                 {
                     if (registration.IsDisposed || (registration.NextTick > current))
@@ -117,9 +116,9 @@ public sealed class ManualTimeProvider(DateTimeOffset start, TimeZoneInfo? local
             {
                 callback.Callback(callback.State);
             }
-
-            amount = TimeSpan.Zero;
         }
+
+        return true;
     }
 
     private void Remove(long id) => timers.TryRemove(id, out _);

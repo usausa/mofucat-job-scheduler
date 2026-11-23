@@ -14,7 +14,11 @@ public sealed class JobRegistration
 
     public TimeZoneInfo? TimeZone { get; }
 
-    public JobRegistration(string? name, string cronExpression, Func<IServiceProvider, ISchedulerJob> factory, MisfirePolicy misfirePolicy, int maxCatchUp = 0, TimeZoneInfo? timeZone = null)
+    public ConcurrencyPolicy ConcurrencyPolicy { get; }
+
+    public TimeSpan? Timeout { get; }
+
+    public JobRegistration(string? name, string cronExpression, Func<IServiceProvider, ISchedulerJob> factory, MisfirePolicy misfirePolicy, int maxCatchUp = 0, TimeZoneInfo? timeZone = null, ConcurrencyPolicy concurrencyPolicy = ConcurrencyPolicy.Allow, TimeSpan? timeout = null)
     {
         Name = name;
         CronExpression = cronExpression;
@@ -22,6 +26,8 @@ public sealed class JobRegistration
         MisfirePolicy = misfirePolicy;
         MaxCatchUp = maxCatchUp;
         TimeZone = timeZone;
+        ConcurrencyPolicy = concurrencyPolicy;
+        Timeout = timeout;
     }
 }
 

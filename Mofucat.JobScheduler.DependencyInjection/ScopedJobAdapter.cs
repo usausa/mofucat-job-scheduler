@@ -21,10 +21,25 @@ internal sealed class ScopedJobAdapter : ISchedulerJob
 
     public async ValueTask ExecuteAsync(DateTimeOffset time, CancellationToken cancellationToken)
     {
-#pragma warning disable CA2007
-        await using var scope = rootProvider.CreateAsyncScope();
-#pragma warning restore CA2007
-        var job = (ISchedulerJob)scope.ServiceProvider.GetRequiredService(jobType);
-        await job.ExecuteAsync(time, cancellationToken).ConfigureAwait(false);
+        var scope = rootProvider.CreateAsyncScope();
+        try
+        {
+            var job = (ISchedulerJob)scope.ServiceProvider.GetRequiredService(jobType);
+            await job.ExecuteAsync(time, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await scope.DisposeAsync().ConfigureAwait(false);
+            throw;
+        }
+        catch
+        {
+            await DisposeScopeAsync(scope).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            throw;
+        }
+
+        await scope.DisposeAsync().ConfigureAwait(false);
     }
+
+    private static async Task DisposeScopeAsync(AsyncServiceScope scope) => await scope.DisposeAsync().ConfigureAwait(false);
 }

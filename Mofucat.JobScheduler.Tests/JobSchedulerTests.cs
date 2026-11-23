@@ -727,6 +727,41 @@ public sealed class JobSchedulerTests
     }
 
     [Fact]
+    public async Task MisfirePolicyCatchUpWhenRestartedDuringReplayThenResetsCatchUpCount()
+    {
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 30, TimeSpan.Zero));
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var job = new CountingJob();
+        var handle = scheduler.AddJob("*/1 * * * *", job, "sample", maxCatchUp: 3);
+        var stopping = new TaskCompletionSource<Task<bool>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        scheduler.JobCompleted += (sender, _) =>
+        {
+            if (job.ExecutionCount == 2)
+            {
+                stopping.TrySetResult(((JobScheduler)sender!).StopAsync(TestContext.Current.CancellationToken));
+            }
+        };
+        await scheduler.StartAsync();
+
+        await timeProvider.AdvanceAsync(TimeSpan.FromMinutes(10), cancellationTokenSource.Token);
+        var stopTask = await stopping.Task.WaitAsync(cancellationTokenSource.Token);
+        Assert.True(await stopTask.WaitAsync(cancellationTokenSource.Token));
+
+        await scheduler.StartAsync();
+        await timeProvider.AdvanceAsync(TimeSpan.FromMinutes(10), cancellationTokenSource.Token);
+        await job.WaitForExecutionsAsync(5, cancellationTokenSource.Token);
+        await Task.Delay(50, cancellationTokenSource.Token);
+
+        Assert.Equal(5, job.ExecutionCount);
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 28, 0, TimeSpan.Zero), handle.NextExecutionTime);
+
+        await scheduler.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task StartWhenScheduledTimeIsSkippedByDaylightSavingTimeThenRunsWhenClockJumps()
     {
         using var cancellationTokenSource = CreateCancellationTokenSource();
@@ -744,6 +779,99 @@ public sealed class JobSchedulerTests
         Assert.Equal(new DateTimeOffset(2026, 3, 8, 3, 0, 0, TimeSpan.FromHours(-4)), executionTime);
         Assert.Equal(new DateTimeOffset(2026, 3, 9, 2, 30, 0, TimeSpan.FromHours(-4)), handle.NextExecutionTime);
 
+        await scheduler.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task StartWhenConcurrencyPolicyIsNotSpecifiedThenStartsOverlappingExecution()
+    {
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var job = new LongRunningJob();
+        scheduler.AddJob("*/10 * * * * *", job, "sample");
+        await scheduler.StartAsync();
+
+        await timeProvider.AdvanceAsync(TimeSpan.FromSeconds(5), cancellationTokenSource.Token);
+        await job.WaitForExecutionsAsync(1, cancellationTokenSource.Token);
+        await timeProvider.AdvanceAsync(TimeSpan.FromSeconds(10), cancellationTokenSource.Token);
+        await job.WaitForExecutionsAsync(2, cancellationTokenSource.Token);
+
+        Assert.Equal(2, job.ExecutionCount);
+
+        job.Release();
+        await scheduler.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task ConcurrencyPolicySkipWhenPreviousExecutionIsRunningThenSkipsOccurrence()
+    {
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 5, TimeSpan.Zero));
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var job = new LongRunningJob();
+        var synchronizationJob = new CountingJob();
+        var handle = scheduler.AddJob("*/10 * * * * *", job, "sample", concurrencyPolicy: ConcurrencyPolicy.Skip);
+        scheduler.AddJob("*/10 * * * * *", synchronizationJob, "synchronization");
+        await scheduler.StartAsync();
+
+        await timeProvider.AdvanceAsync(TimeSpan.FromSeconds(5), cancellationTokenSource.Token);
+        await synchronizationJob.WaitForExecutionsAsync(1, cancellationTokenSource.Token);
+        await timeProvider.AdvanceAsync(TimeSpan.FromSeconds(10), cancellationTokenSource.Token);
+        await synchronizationJob.WaitForExecutionsAsync(2, cancellationTokenSource.Token);
+
+        Assert.Equal(1, job.ExecutionCount);
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 7, 30, TimeSpan.Zero), handle.NextExecutionTime);
+
+        job.Release();
+        await scheduler.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task ConcurrencyPolicySkipWhenExecutionsDoNotOverlapThenCatchUpFiresFiveTimes()
+    {
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 30, TimeSpan.Zero));
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var job = new CountingJob();
+        scheduler.AddJob("*/1 * * * *", job, "sample", concurrencyPolicy: ConcurrencyPolicy.Skip);
+        await scheduler.StartAsync();
+
+        await timeProvider.AdvanceAsync(TimeSpan.FromMinutes(5), cancellationTokenSource.Token);
+        await job.WaitForExecutionsAsync(5, cancellationTokenSource.Token);
+
+        Assert.Equal(5, job.ExecutionCount);
+
+        await scheduler.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task ConcurrencyPolicySkipWhenCatchUpOverlapsRunningExecutionThenSkipsReplays()
+    {
+        using var cancellationTokenSource = CreateCancellationTokenSource();
+        var timeProvider = new ManualTimeProvider(new DateTimeOffset(2026, 4, 26, 10, 7, 30, TimeSpan.Zero));
+#pragma warning disable CA2007
+        await using var scheduler = new JobScheduler(timeProvider);
+#pragma warning restore CA2007
+        var job = new LongRunningJob();
+        var synchronizationJob = new CountingJob();
+        var handle = scheduler.AddJob("*/1 * * * *", job, "sample", concurrencyPolicy: ConcurrencyPolicy.Skip);
+        scheduler.AddJob("*/1 * * * *", synchronizationJob, "synchronization");
+        await scheduler.StartAsync();
+
+        await timeProvider.AdvanceAsync(TimeSpan.FromMinutes(5), cancellationTokenSource.Token);
+        await synchronizationJob.WaitForExecutionsAsync(5, cancellationTokenSource.Token);
+
+        Assert.Equal(1, job.ExecutionCount);
+        Assert.Equal(new DateTimeOffset(2026, 4, 26, 10, 13, 0, TimeSpan.Zero), handle.NextExecutionTime);
+
+        job.Release();
         await scheduler.StopAsync(TestContext.Current.CancellationToken);
     }
 
